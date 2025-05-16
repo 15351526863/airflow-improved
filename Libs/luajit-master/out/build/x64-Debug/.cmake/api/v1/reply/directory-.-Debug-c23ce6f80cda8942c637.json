@@ -1,0 +1,309 @@
+{
+	"backtraceGraph" : 
+	{
+		"commands" : 
+		[
+			"install",
+			"install_executable",
+			"install_library",
+			"install_header",
+			"install_doc",
+			"install_foo",
+			"install_data"
+		],
+		"files" : 
+		[
+			"cmake/dist.cmake",
+			"CMakeLists.txt"
+		],
+		"nodes" : 
+		[
+			{
+				"file" : 1
+			},
+			{
+				"command" : 1,
+				"file" : 1,
+				"line" : 318,
+				"parent" : 0
+			},
+			{
+				"command" : 0,
+				"file" : 0,
+				"line" : 144,
+				"parent" : 1
+			},
+			{
+				"command" : 1,
+				"file" : 1,
+				"line" : 322,
+				"parent" : 0
+			},
+			{
+				"command" : 0,
+				"file" : 0,
+				"line" : 144,
+				"parent" : 3
+			},
+			{
+				"command" : 2,
+				"file" : 1,
+				"line" : 323,
+				"parent" : 0
+			},
+			{
+				"command" : 0,
+				"file" : 0,
+				"line" : 162,
+				"parent" : 5
+			},
+			{
+				"command" : 3,
+				"file" : 1,
+				"line" : 324,
+				"parent" : 0
+			},
+			{
+				"command" : 0,
+				"file" : 0,
+				"line" : 195,
+				"parent" : 7
+			},
+			{
+				"command" : 0,
+				"file" : 0,
+				"line" : 195,
+				"parent" : 7
+			},
+			{
+				"command" : 0,
+				"file" : 0,
+				"line" : 195,
+				"parent" : 7
+			},
+			{
+				"command" : 0,
+				"file" : 0,
+				"line" : 195,
+				"parent" : 7
+			},
+			{
+				"command" : 0,
+				"file" : 0,
+				"line" : 195,
+				"parent" : 7
+			},
+			{
+				"command" : 0,
+				"file" : 0,
+				"line" : 195,
+				"parent" : 7
+			},
+			{
+				"command" : 4,
+				"file" : 1,
+				"line" : 326,
+				"parent" : 0
+			},
+			{
+				"command" : 0,
+				"file" : 0,
+				"line" : 237,
+				"parent" : 14
+			},
+			{
+				"command" : 5,
+				"file" : 1,
+				"line" : 327,
+				"parent" : 0
+			},
+			{
+				"command" : 0,
+				"file" : 0,
+				"line" : 303,
+				"parent" : 16
+			},
+			{
+				"command" : 6,
+				"file" : 1,
+				"line" : 328,
+				"parent" : 0
+			},
+			{
+				"command" : 0,
+				"file" : 0,
+				"line" : 218,
+				"parent" : 18
+			},
+			{
+				"command" : 0,
+				"file" : 0,
+				"line" : 218,
+				"parent" : 18
+			}
+		]
+	},
+	"installers" : 
+	[
+		{
+			"backtrace" : 2,
+			"component" : "Runtime",
+			"destination" : "bin",
+			"paths" : 
+			[
+				"wluajit.exe"
+			],
+			"targetId" : "wluajit::@6890427a1f51a3e7e1df",
+			"targetIndex" : 4,
+			"type" : "target"
+		},
+		{
+			"backtrace" : 4,
+			"component" : "Runtime",
+			"destination" : "bin",
+			"paths" : 
+			[
+				"luajit.exe"
+			],
+			"targetId" : "luajit::@6890427a1f51a3e7e1df",
+			"targetIndex" : 2,
+			"type" : "target"
+		},
+		{
+			"backtrace" : 6,
+			"component" : "Library",
+			"destination" : "lib",
+			"paths" : 
+			[
+				"lua.lib"
+			],
+			"targetId" : "liblua::@6890427a1f51a3e7e1df",
+			"targetIndex" : 1,
+			"targetIsImportLibrary" : true,
+			"type" : "target"
+		},
+		{
+			"backtrace" : 6,
+			"component" : "Runtime",
+			"destination" : "bin",
+			"paths" : 
+			[
+				"lua.dll"
+			],
+			"targetId" : "liblua::@6890427a1f51a3e7e1df",
+			"targetIndex" : 1,
+			"type" : "target"
+		},
+		{
+			"backtrace" : 8,
+			"component" : "Header",
+			"destination" : "include",
+			"paths" : 
+			[
+				"src/lua.h"
+			],
+			"type" : "file"
+		},
+		{
+			"backtrace" : 9,
+			"component" : "Header",
+			"destination" : "include",
+			"paths" : 
+			[
+				"src/luajit.h"
+			],
+			"type" : "file"
+		},
+		{
+			"backtrace" : 10,
+			"component" : "Header",
+			"destination" : "include",
+			"paths" : 
+			[
+				"src/lua.hpp"
+			],
+			"type" : "file"
+		},
+		{
+			"backtrace" : 11,
+			"component" : "Header",
+			"destination" : "include",
+			"paths" : 
+			[
+				"out/build/x64-Debug/luaconf.h"
+			],
+			"type" : "file"
+		},
+		{
+			"backtrace" : 12,
+			"component" : "Header",
+			"destination" : "include",
+			"paths" : 
+			[
+				"src/lualib.h"
+			],
+			"type" : "file"
+		},
+		{
+			"backtrace" : 13,
+			"component" : "Header",
+			"destination" : "include",
+			"paths" : 
+			[
+				"src/lauxlib.h"
+			],
+			"type" : "file"
+		},
+		{
+			"backtrace" : 15,
+			"component" : "Documentation",
+			"destination" : "share/luajit/doc/",
+			"paths" : 
+			[
+				{
+					"from" : "doc",
+					"to" : "."
+				}
+			],
+			"type" : "directory"
+		},
+		{
+			"backtrace" : 17,
+			"component" : "Other",
+			"destination" : "share/luajit/etc/",
+			"paths" : 
+			[
+				{
+					"from" : "etc",
+					"to" : "."
+				}
+			],
+			"type" : "directory"
+		},
+		{
+			"backtrace" : 19,
+			"component" : "Data",
+			"destination" : "share/luajit",
+			"paths" : 
+			[
+				"COPYRIGHT"
+			],
+			"type" : "file"
+		},
+		{
+			"backtrace" : 20,
+			"component" : "Data",
+			"destination" : "share/luajit",
+			"paths" : 
+			[
+				"README.md"
+			],
+			"type" : "file"
+		}
+	],
+	"paths" : 
+	{
+		"build" : ".",
+		"source" : "."
+	}
+}

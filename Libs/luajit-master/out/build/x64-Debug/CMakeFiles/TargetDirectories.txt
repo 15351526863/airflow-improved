@@ -1,0 +1,12 @@
+D:/luajit-master/out/build/x64-Debug/CMakeFiles/minilua.dir
+D:/luajit-master/out/build/x64-Debug/CMakeFiles/buildvm.dir
+D:/luajit-master/out/build/x64-Debug/CMakeFiles/liblua.dir
+D:/luajit-master/out/build/x64-Debug/CMakeFiles/luajit.dir
+D:/luajit-master/out/build/x64-Debug/CMakeFiles/wluajit.dir
+D:/luajit-master/out/build/x64-Debug/CMakeFiles/package.dir
+D:/luajit-master/out/build/x64-Debug/CMakeFiles/package_source.dir
+D:/luajit-master/out/build/x64-Debug/CMakeFiles/edit_cache.dir
+D:/luajit-master/out/build/x64-Debug/CMakeFiles/rebuild_cache.dir
+D:/luajit-master/out/build/x64-Debug/CMakeFiles/list_install_components.dir
+D:/luajit-master/out/build/x64-Debug/CMakeFiles/install.dir
+D:/luajit-master/out/build/x64-Debug/CMakeFiles/install/local.dir

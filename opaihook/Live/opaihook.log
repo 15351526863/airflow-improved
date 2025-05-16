@@ -1,0 +1,2 @@
+﻿  TRACKER : 错误 TRK0005: 未能找到: “CL.exe”。系统找不到指定的文件。
+D:\visualstudio\packages\MSBuild\Microsoft\VC\v170\Microsoft.CppCommon.targets(781,5): error MSB6006: “CL.exe”已退出，代码为 5。
