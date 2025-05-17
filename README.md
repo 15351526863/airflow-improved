@@ -34,4 +34,4 @@
 
 ## 🛠️ 如何构建/使用 
 
-* 使用 [Visual Studio] 打开 目录下的[sln]后缀的文件，选择“[Alpha]”版本或者“[Beta]”版本进行编译 (Release模式已损坏）
+* 使用'Visual Studio' 打开 目录下的'sln'后缀的文件，选择“'Alpha'”版本或者“'Beta'”版本进行编译 (Release模式已损坏）
