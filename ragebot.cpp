@@ -995,26 +995,26 @@ bool hitchance(vec3_t eye_pos, rage_player_t& rage, const rage_point_t& point, a
 	// 几何解析方法 (lambda)
 	auto overlap_ratio = [&](float r1, float r2, float sep) -> float
 		{
-			if (r1 <= 0.f) 
+			if (r1 <= 0.f)
 				return 0.f;
-			
-			if (sep >= r1 + r2) 
+
+			if (sep >= r1 + r2)
 				return 0.f;
-			
+
 			if (sep <= std::fabs(r1 - r2))
 				return r2 <= r1 ? (r2 * r2) / (r1 * r1) : 1.f;
-			
+
 			float r1sq = r1 * r1, r2sq = r2 * r2;
 			float alpha = std::acos((sep * sep + r1sq - r2sq) / (2.f * sep * r1));
 			float beta = std::acos((sep * sep + r2sq - r1sq) / (2.f * sep * r2));
 			float part = -sep + r1 + r2;
 			float area = r1sq * alpha + r2sq * beta - 0.5f * std::sqrt(part * (sep + r1 - r2) * (sep - r1 + r2) * (sep + r1 + r2));
-			
+
 			return area / (M_PI * r1sq);
 		};
 
 	float probability = overlap_ratio(spread_r, tgt_r, d);
-	
+
 	if (hitchance_out)
 		*hitchance_out = std::clamp(probability, 0.f, 1.f);
 
@@ -1022,6 +1022,7 @@ bool hitchance(vec3_t eye_pos, rage_player_t& rage, const rage_point_t& point, a
 
 	return probability >= chance;
 }
+
 
 void collect_damage_from_multipoints(int damage, vec3_t& predicted_eye_pos, rage_player_t* rage, rage_point_t& points, anim_record_t* record, matrix3x4_t* matrix_to_aim, bool predicted)
 {
@@ -1179,13 +1180,14 @@ void c_ragebot::scan_players()
 
 rage_player_t* c_ragebot::select_target()
 {
-	static int cycle_idx = 0; 
+	static int cycle_idx = 0;
 	static int cycle_hits = 0;
 
 	rage_player_t* best{};
-	float best_distance = FLT_MAX; 
+	float best_distance = FLT_MAX;
 	int best_damage = -1;
 	int best_health = 101;
+	float best_hitchance_val = -1.f;
 
 	std::vector<rage_player_t*> candidates;
 	candidates.reserve(64);
@@ -1206,49 +1208,84 @@ rage_player_t* c_ragebot::select_target()
 
 			switch (g_cfg.rage.target_selection)
 			{
-			case 0: /* Lowest distance */
+			case 0: /* lowest distance */
+
 				if (rage->distance < best_distance)
 				{
 					best_distance = rage->distance;
 					best = rage;
 				}
+
 				break;
 
-			case 1: /* Highest Damage */
+			case 1: /* highest damage */
+
 				if (rage->best_point.damage > best_damage)
 				{
 					best_damage = rage->best_point.damage;
 					best = rage;
 				}
+
 				break;
 
-			case 2: /* Lowest Health */
+			case 2: /* lowest health */
 			{
 				int hp = player->health();
+
+				// Tie-breaking
 				if (hp < best_health || (hp == best_health && (rage->best_point.damage > best_damage || (rage->best_point.damage == best_damage && rage->distance < best_distance))))
 				{
 					best_health = hp;
-					best_distance = rage->distance;
+					best_distance = rage->distance; 
 					best_damage = rage->best_point.damage;
 					best = rage;
 				}
+
+				break;
+			}
+
+			case 5: /* Best hitchance */
+			{
+				if (!rage->best_record)
+					break;
+
+				auto local_anims = ANIMFIX->get_local_anims();
+				if (!local_anims)
+					break;
+
+				auto aim_angle = math::calc_angle(local_anims->eye_pos, rage->best_point.aim_point).normalized_angle();
+				auto eye_pos_for_hc = ANIMFIX->get_eye_position(aim_angle.x);
+
+				float current_target_hitchance = 0.f;
+				float chance_threshold = rage_config.hitchance * 0.01f;
+
+				// calc hitchance for each player
+				hitchance(eye_pos_for_hc, *rage, rage->best_point, rage->best_record, chance_threshold, nullptr, &current_target_hitchance);
+
+				// Tie-Breaking
+				if (current_target_hitchance > best_hitchance_val ||
+					(current_target_hitchance == best_hitchance_val && (rage->best_point.damage > best_damage || (rage->best_point.damage == best_damage && rage->distance < best_distance))))
+				{
+					best_hitchance_val = current_target_hitchance;
+					best_damage = rage->best_point.damage;
+					best_distance = rage->distance;
+					best = rage;
+				}
+
 				break;
 			}
 			}
 		});
 
-   /*
-	*	Cycle & Cycle (2x)
-	*	They share almost of the logic, so I didn't use a switch statement. I used if statements to reuse the logic
-	*   This is really unattractive, especially for someone like me with OCD. Sorry
-	*	TO-DO: Need re-work
-	*/
-
+	/* 
+	 * Cycle & Cycle [2x]
+	 */
 	if (g_cfg.rage.target_selection == 3 || g_cfg.rage.target_selection == 4)
 	{
 		if (candidates.empty())
 			return nullptr;
 
+		// Sort the player index
 		std::sort(candidates.begin(), candidates.end(), [](rage_player_t* a, rage_player_t* b)
 			{
 				return a->distance < b->distance;
@@ -1262,14 +1299,16 @@ rage_player_t* c_ragebot::select_target()
 
 		best = candidates[cycle_idx];
 
-		if (g_cfg.rage.target_selection == 3) // 1x
+		/*  Cycle */
+		if (g_cfg.rage.target_selection == 3)
 		{
 			cycle_idx = (cycle_idx + 1) % candidates.size();
 		}
-		else // 2x
+		else /* Cycle 2x */
 		{
 			++cycle_hits;
-			if (cycle_hits >= 2)
+
+			if (cycle_hits >= 2) // <-- IQ
 			{
 				cycle_hits = 0;
 				cycle_idx = (cycle_idx + 1) % candidates.size();
@@ -1279,6 +1318,7 @@ rage_player_t* c_ragebot::select_target()
 
 	return best;
 }
+
 
 void c_ragebot::choose_best_point()
 {
