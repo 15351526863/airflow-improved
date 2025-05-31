@@ -19,10 +19,10 @@ namespace resolver
             sum_sin += std::sinf(a);
             sum_cos += std::cosf(a);
         }
-        return RAD2DEG(std::atan2f(sum_sin / count, sum_cos / count));
+        return RAD2DEG(std::atan2f(sum_sin, sum_cos));
     }
 
-    inline float circular_variance(const float* angles, int count, float mean_deg)
+    inline float circular_variance(const float* angles, int count)
     {
         float sum_sin = 0.f, sum_cos = 0.f;
         for (int i = 0; i < count; ++i)
@@ -71,7 +71,7 @@ namespace resolver
         float mean_angle = circular_mean(jitter.delta_history,
             resolver_info_t::jitter_info_t::DELTA_WINDOW);
         jitter.variance = circular_variance(jitter.delta_history,
-            resolver_info_t::jitter_info_t::DELTA_WINDOW, mean_angle) * 100.f;
+            resolver_info_t::jitter_info_t::DELTA_WINDOW) * 100.f;
         jitter.autocorr = best_corr;
         jitter.delta_variance = std::fabs(deriv);
 
@@ -106,11 +106,7 @@ namespace resolver
             }
         }
 
-        if (best_band == 0)
-            return 0; // DC
-        if (best_band == 1)
-            return 1; // fundamental
-        return 2;
+        return best_band;
     }
 
     inline void analyze_jitter_spectrum(resolver_info_t::jitter_info_t& jitter)
@@ -149,11 +145,15 @@ namespace resolver
     {
         constexpr int N = resolver_info_t::jitter_info_t::DELTA_WINDOW;
         thread_local float window[N];
-
-        for (int i = 0; i < N; ++i)
+        static thread_local bool init{};
+        if (!init)
         {
-            float t = static_cast<float>(i) / static_cast<float>(N - 1);
-            window[i] = 0.5f - 0.5f * std::cosf(FFT_TWO_PI * t);
+            for (int i = 0; i < N; ++i)
+            {
+                float t = static_cast<float>(i) / static_cast<float>(N - 1);
+                window[i] = 0.5f - 0.5f * std::cosf(FFT_TWO_PI * t);
+            }
+            init = true;
         }
 
         float best_power = 0.f;
@@ -187,11 +187,15 @@ namespace resolver
     {
         constexpr int N = resolver_info_t::jitter_info_t::DELTA_WINDOW;
         thread_local float window[N];
-
-        for (int i = 0; i < N; ++i)
+        static thread_local bool init{};
+        if (!init)
         {
-            float t = static_cast<float>(i) / static_cast<float>(N - 1);
-            window[i] = 0.54f - 0.46f * std::cosf(FFT_TWO_PI * t);
+            for (int i = 0; i < N; ++i)
+            {
+                float t = static_cast<float>(i) / static_cast<float>(N - 1);
+                window[i] = 0.54f - 0.46f * std::cosf(FFT_TWO_PI * t);
+            }
+            init = true;
         }
 
         float best_power = 0.f;
@@ -263,6 +267,7 @@ namespace resolver
     {
         constexpr int N = resolver_info_t::jitter_info_t::DELTA_WINDOW;
         const float old = j.delta_history[j.delta_offset % N];
+        // index 0 stores the DC component and is intentionally unused
         for (int k = 1; k <= N / 4; ++k)
         {
             const float angle = FFT_TWO_PI * static_cast<float>(k) / static_cast<float>(N);
@@ -362,7 +367,9 @@ namespace resolver
             sum_w += weight;
             weight *= alpha;
         }
-        return mean / std::max(sum_w, 0.001f);
+        if (sum_w == 0.f)
+            return 0.f;
+        return mean / sum_w;
     }
 
     inline void analyze_jitter_exponential(resolver_info_t::jitter_info_t& j)
@@ -391,10 +398,15 @@ namespace resolver
     {
         constexpr int N = resolver_info_t::jitter_info_t::DELTA_WINDOW;
         thread_local float win[N];
-        for (int i = 0; i < N; ++i)
+        static thread_local bool init{};
+        if (!init)
         {
-            float t = static_cast<float>(i) / static_cast<float>(N - 1);
-            win[i] = 0.5f - 0.5f * std::cosf(FFT_TWO_PI * t);
+            for (int i = 0; i < N; ++i)
+            {
+                float t = static_cast<float>(i) / static_cast<float>(N - 1);
+                win[i] = 0.5f - 0.5f * std::cosf(FFT_TWO_PI * t);
+            }
+            init = true;
         }
 
         float mean = weighted_mean(j.delta_history, win, N);
@@ -469,7 +481,7 @@ namespace resolver
                 float d = jitter.delta_cache[i] - mean_small;
                 var_small += d * d;
             }
-            jitter.delta_variance = var_small / static_cast<float>(CACHE_SIZE);
+            jitter.delta_variance = var_small / static_cast<float>(CACHE_SIZE - 1);
             analyze_jitter_pattern(jitter);
             analyze_jitter_spectrum(jitter);
             analyze_jitter_crosscorr(jitter);
@@ -514,7 +526,7 @@ namespace resolver
                 var += d * d;
             }
 
-            j.delta_variance = var / static_cast<float>(CACHE_SIZE);
+            j.delta_variance = var / static_cast<float>(CACHE_SIZE - 1);
 
             analyze_jitter_pattern(j);
             analyze_jitter_fft(j);
@@ -578,13 +590,7 @@ namespace resolver
 
     inline float logistic(float x)
     {
-        if (x >= 0.f)
-        {
-            float e = std::exp(-x);
-            return 1.f / (1.f + e);
-        }
-        float e = std::exp(x);
-        return e / (1.f + e);
+        return 1.f / (1.f + std::exp(-x));
     }
 
     inline float compute_final_yaw(const resolver_info_t& info, float base_yaw, float desync_angle)
@@ -625,10 +631,17 @@ namespace resolver
         };
 
         float sum = 0.f;
-        for (float v : pred) sum += std::exp(v);
+        float exps[5];
+        for (int i = 0; i < 5; ++i)
+        {
+            float safe = std::clamp(pred[i], -50.f, 50.f);
+            exps[i] = std::exp(safe);
+            sum += exps[i];
+        }
 
         float weighted = 0.f;
-        for (float v : pred) weighted += v * std::exp(v) / sum;
+        for (int i = 0; i < 5; ++i)
+            weighted += pred[i] * exps[i] / sum;
 
         float hint_w = logistic(side_hint * 2.f - 1.f);
         float out = desync_angle * (0.8f * weighted + 0.2f * hint_w);
@@ -651,12 +664,17 @@ namespace resolver
         };
 
         float sum = 0.f;
-        for (float v : predictors)
-            sum += std::exp(v);
+        float exps[6];
+        for (int i = 0; i < 6; ++i)
+        {
+            float safe = std::clamp(predictors[i], -50.f, 50.f);
+            exps[i] = std::exp(safe);
+            sum += exps[i];
+        }
 
         float weight = 0.f;
-        for (float v : predictors)
-            weight += v * std::exp(v) / sum;
+        for (int i = 0; i < 6; ++i)
+            weight += predictors[i] * exps[i] / sum;
 
         weight = std::clamp(weight, -1.f, 1.f);
         float offset = desync * weight;
@@ -679,10 +697,17 @@ namespace resolver
         };
 
         float sum = 0.f;
-        for (float v : pred) sum += std::exp(v);
+        float exps[5];
+        for (int i = 0; i < 5; ++i)
+        {
+            float safe = std::clamp(pred[i], -50.f, 50.f);
+            exps[i] = std::exp(safe);
+            sum += exps[i];
+        }
 
         float soft_w = 0.f;
-        for (float v : pred) soft_w += v * std::exp(v) / sum;
+        for (int i = 0; i < 5; ++i)
+            soft_w += pred[i] * exps[i] / sum;
 
         float log_w = logistic(soft_w * 2.f) * 2.f - 1.f;
         float side_hint = info.side_prob.best_side() > 0 ? 1.f : -1.f;
@@ -853,14 +878,23 @@ namespace resolver
         c_cs_player* player)
     {
         constexpr int N = 4;
+        struct cache_t { vec3_t spine, pelvis; float time; };
+        static thread_local cache_t cache[65];
+        auto& c = cache[player->index()];
+        float curtime = HACKS->global_vars->curtime;
+        if (c.time != curtime)
+        {
+            c.spine = player->get_hitbox_position(HITBOX_CHEST, nullptr);
+            c.pelvis = player->get_hitbox_position(HITBOX_PELVIS, nullptr);
+            c.time = curtime;
+        }
+
         float sum = 0.f;
         float w = 1.f;
         const float decay = 0.7f;
 
         int off = j.yaw_cache_offset;
-        vec3_t spine = player->get_hitbox_position(HITBOX_CHEST, nullptr);
-        vec3_t pelvis = player->get_hitbox_position(HITBOX_PELVIS, nullptr);
-        vec3_t dir = spine - pelvis;
+        vec3_t dir = c.spine - c.pelvis;
         if (dir.length_sqr() < 1e-3f)
             return 0;
 
@@ -1110,7 +1144,8 @@ namespace resolver
             if (side == info.side_prob.best_side())
                 base *= 1.4f;
 
-            scores[i] = std::exp(base);
+            float safe = std::clamp(base, -50.f, 50.f);
+            scores[i] = std::exp(safe);
             score_sum += scores[i];
         }
 
@@ -1334,7 +1369,7 @@ namespace resolver
 
         auto update_best = [&](float score, int side, const char* mode, float& conf_field)
             {
-                conf_field = score;
+                conf_field = std::max(conf_field, score);
                 if (score > best_score)
                 {
                     best_score = score;
@@ -1463,7 +1498,7 @@ namespace resolver
         auto update_best =
             [&](float score, int side, const char* mode, float& field)
             {
-                field = score;
+                field = std::max(field, score);
                 if (score > best_score)
                 {
                     best_score = score;

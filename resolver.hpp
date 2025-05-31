@@ -17,18 +17,24 @@ struct resolver_info_t
 
     INLINE void add_legit_ticks()
     {
-        if (legit_ticks < MAX_TICKS)
-            ++legit_ticks;
-        else
+        if (legit_ticks >= MAX_TICKS)
+        {
             fake_ticks = 0;
+            legit_ticks = MAX_TICKS;
+        }
+        else
+            ++legit_ticks;
     }
 
     INLINE void add_fake_ticks()
     {
-        if (fake_ticks < MAX_TICKS)
-            ++fake_ticks;
-        else
+        if (fake_ticks >= MAX_TICKS)
+        {
             legit_ticks = 0;
+            fake_ticks = MAX_TICKS;
+        }
+        else
+            ++fake_ticks;
     }
 
     INLINE bool is_legit()
@@ -87,6 +93,7 @@ struct resolver_info_t
         float variance{};
         float autocorr{};
 
+        // FFT buffers, index 0 stores the DC component and is unused in analysis
         float fft_real[DELTA_WINDOW]{};
         float fft_imag[DELTA_WINDOW]{};
 
@@ -123,6 +130,7 @@ struct resolver_info_t
 
             std::memset(delta_cache, 0, sizeof(delta_cache));
             std::memset(yaw_cache, 0, sizeof(yaw_cache));
+            std::memset(delta_history, 0, sizeof(delta_history));
             std::memset(fft_real, 0, sizeof(fft_real));
             std::memset(fft_imag, 0, sizeof(fft_imag));
         }
