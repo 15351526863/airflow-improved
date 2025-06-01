@@ -4,6 +4,122 @@
 #include "server_bones.hpp"
 #include "ragebot.hpp"
 
+static vec3_t ray_circle_intersection(const vec3_t& ray, const vec3_t& center, float r)
+{
+       if (std::fabsf(ray.x) > std::fabsf(ray.y))
+       {
+               float k = ray.y / ray.x;
+
+               float a = 1.f + k * k;
+               float b = -2.f * center.x - 2.f * k * center.y;
+               float c = center.length_sqr_2d() - r * r;
+
+               float d = b * b - 4.f * a * c;
+
+               if (d < 0.f)
+               {
+                       vec3_t nearest_on_ray = ray * center.dot(ray);
+                       vec3_t diff = (nearest_on_ray - center).normalized();
+                       return center + diff * r;
+               }
+               else if (d < 0.001f)
+               {
+                       float x = -b / (2.f * a);
+                       float y = k * x;
+                       return { x, y, 0.f };
+               }
+
+               float d_sqrt = std::sqrtf(d);
+
+               float x = (-b + d_sqrt) / (2.f * a);
+               float y = k * x;
+
+               vec3_t dir1(x, y, 0.f);
+
+               x = (-b - d_sqrt) / (2.f * a);
+               y = k * x;
+
+               vec3_t dir2(x, y, 0.f);
+
+               if (ray.dot(dir1) > ray.dot(dir2))
+                       return dir1;
+
+               return dir2;
+       }
+       else
+       {
+               float k = ray.x / ray.y;
+
+               float a = 1.f + k * k;
+               float b = -2.f * center.y - 2.f * k * center.x;
+               float c = center.length_sqr_2d() - r * r;
+
+               float d = b * b - 4.f * a * c;
+
+               if (d < 0.f)
+               {
+                       vec3_t nearest_on_ray = ray * center.dot(ray);
+                       vec3_t diff = (nearest_on_ray - center).normalized();
+                       return center + diff * r;
+               }
+               else if (d < 0.001f)
+               {
+                       float y = -b / (2.f * a);
+                       float x = k * y;
+                       return { x, y, 0.f };
+               }
+
+               float d_sqrt = std::sqrtf(d);
+
+               float y = (-b + d_sqrt) / (2.f * a);
+               float x = k * y;
+
+               vec3_t dir1(x, y, 0.f);
+
+               y = (-b - d_sqrt) / (2.f * a);
+               x = k * y;
+
+               vec3_t dir2(x, y, 0.f);
+
+               if (ray.dot(dir1) > ray.dot(dir2))
+                       return dir1;
+
+               return dir2;
+       }
+}
+
+static float calculate_throw_yaw(const vec3_t& wish_dir, const vec3_t& vel, float throw_velocity, float throw_strength)
+{
+       vec3_t dir_normalized = wish_dir;
+       dir_normalized.z = 0.f;
+       dir_normalized = dir_normalized.normalized();
+
+       float cos_pitch = dir_normalized.dot(wish_dir) / std::sqrtf(wish_dir.length_sqr());
+
+       float speed = std::clamp(throw_velocity * 0.9f, 15.f, 750.f) * (std::clamp(throw_strength, 0.f, 1.f) * 0.7f + 0.3f) * cos_pitch;
+       vec3_t real_dir = ray_circle_intersection(dir_normalized, vel * 1.25f, speed) - vel * 1.25f;
+
+       vec3_t ang{};
+       math::vector_angles(real_dir, ang);
+       return ang.y;
+}
+
+static float calculate_throw_pitch(const vec3_t& wish_dir, float wish_z_vel, const vec3_t& vel, float throw_velocity, float throw_strength)
+{
+       float speed = std::clamp(throw_velocity * 0.9f, 15.f, 750.f) * (std::clamp(throw_strength, 0.f, 1.f) * 0.7f + 0.3f);
+
+       vec3_t cur_vel = vel * 1.25f + wish_dir * speed;
+       vec3_t wish_vel = vec3_t(vel.x, vel.y, wish_z_vel) * 1.25f + wish_dir * speed;
+
+       vec3_t ang1{}, ang2{};
+       math::vector_angles(cur_vel, ang1);
+       math::vector_angles(wish_vel, ang2);
+
+       float ang_diff = ang2.x - ang1.x;
+
+       return ang_diff * (std::cos(DEG2RAD(ang_diff)) + 1.f) * 0.5f;
+}
+
 void c_movement::update_ground_ticks()
 {
 	if (HACKS->local->flags().has(FL_ONGROUND))
@@ -256,6 +372,38 @@ void c_movement::auto_peek()
 	}
 }
 
+void c_movement::super_toss()
+{
+       if (!g_cfg.misc.compensate_throwable)
+               return;
+
+       if (!HACKS->weapon || !HACKS->weapon_info || !HACKS->weapon->is_grenade())
+               return;
+
+       vec3_t direction{};
+       math::angle_vectors(HACKS->cmd->viewangles, direction);
+
+       vec3_t smoothed_velocity = (local_velocity + last_local_velocity) * 0.5f;
+
+       float base_speed = std::clamp(HACKS->weapon_info->throw_velocity * 0.9f, 15.f, 750.f) *
+               (std::clamp(HACKS->weapon->throw_strength(), 0.f, 1.f) * 0.7f + 0.3f);
+
+       vec3_t base_vel = direction * base_speed;
+       vec3_t current_vel = local_velocity * 1.25f + base_vel;
+
+       vec3_t target_vel = (base_vel + smoothed_velocity * 1.25f).normalized();
+       if (current_vel.dot(direction) > 0.f)
+               target_vel = direction;
+
+       float yaw = calculate_throw_yaw(target_vel, local_velocity, HACKS->weapon_info->throw_velocity, HACKS->weapon->throw_strength());
+
+       if (!HACKS->local->flags().has(FL_ONGROUND))
+               HACKS->cmd->viewangles.y = yaw;
+
+       HACKS->cmd->viewangles.x += calculate_throw_pitch(direction, std::clamp(local_velocity.z, -120.f, 120.f), local_velocity,
+               HACKS->weapon_info->throw_velocity, HACKS->weapon->throw_strength());
+}
+
 void c_movement::instant_stop()
 {
 	vec3_t view_angle{};
@@ -346,6 +494,7 @@ void c_movement::run_predicted()
         auto_strafe();
         fast_stop();
         auto_peek();
+        super_toss();
 }
 
 void c_movement::render_peek_position()
