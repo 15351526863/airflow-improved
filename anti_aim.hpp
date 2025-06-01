@@ -31,8 +31,9 @@ private:
 	bool edging{};
 
 	bool flip_side{};
-	bool flip_jitter{};
-	bool flip_move{};
+        bool flip_jitter{};
+        bool flip_move{};
+        bool anti_backstab{};
 
 	int fake_side{};
 	int shot_cmd{};
@@ -64,10 +65,11 @@ public:
 		fake_ducking = false;
 		defensive_aa = false;
 		can_duck = false;
-		edging = false;
-		flip_side = false;
-		flip_jitter = false;
-		flip_move = false;
+                edging = false;
+                flip_side = false;
+                flip_jitter = false;
+                flip_move = false;
+                anti_backstab = false;
 
 		fake_side = 0;
 		shot_cmd = 0;

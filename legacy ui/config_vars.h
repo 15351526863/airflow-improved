@@ -278,7 +278,8 @@ struct configs_t
 		int pitch{};
 		int yaw{};
 
-		bool at_targets{};
+                bool at_targets{};
+                bool anti_backstab{};
 
 		bool def_pitch{};
 		bool def_yaw{};
