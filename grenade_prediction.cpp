@@ -2,6 +2,107 @@
 #include "grenade_prediction.hpp"
 #include "entlistener.hpp"
 #include "legacy ui/menu/menu.h"
+#include <vector>
+#include <cmath>
+
+// Helper structures for grenade damage prediction
+struct GrenadeDamageInfo {
+    c_cs_player* target;
+    int damage;
+    vec3_t impact_point_on_target;
+};
+
+class CTraceFilterIgnoreGrenades : public i_trace_filter
+{
+public:
+    i_handle_entity* pSkip;
+    int m_icollisionGroup;
+
+    CTraceFilterIgnoreGrenades(i_handle_entity* pSkipEnt = nullptr, int collisionGroup = 0) : pSkip(pSkipEnt), m_icollisionGroup(collisionGroup) {}
+
+    bool should_hit_entity(void* pEntityHandle, int contentsMask) override
+    {
+        if (pEntityHandle == pSkip)
+            return false;
+
+        auto ent = (c_base_entity*)pEntityHandle;
+        if (ent && ((c_cs_player*)ent)->is_player())
+            return true;
+
+        return false;
+    }
+
+    trace_type_t get_trace_type() const override { return TRACE_EVERYTHING; }
+};
+
+static float calculate_armor_damage(float damage, int armor)
+{
+    float armor_ratio = 0.5f;
+    float armor_bonus = 0.5f;
+
+    if (armor > 0)
+    {
+        float new_damage = damage * armor_ratio;
+        float armor_damage = (damage - new_damage) * armor_bonus;
+
+        if (armor_damage > (float)armor)
+        {
+            armor_damage = (float)armor * (1.f / armor_bonus);
+            new_damage = damage - armor_damage;
+        }
+
+        damage = new_damage;
+    }
+
+    return damage;
+}
+
+static std::vector<GrenadeDamageInfo> PredictHEGrenadeDamage(const vec3_t& pos)
+{
+    std::vector<GrenadeDamageInfo> out;
+
+    if (!HACKS->local)
+        return out;
+
+    for (int i = 1; i <= HACKS->global_vars->max_clients; ++i)
+    {
+        auto player = (c_cs_player*)HACKS->entity_list->get_client_entity(i);
+        if (!player || player->dormant() || !player->is_player() || !player->is_alive())
+            continue;
+
+        float dist = player->origin().dist_to(pos);
+        if (dist > 350.f)
+            continue;
+
+        CTraceFilterIgnoreGrenades filter((i_handle_entity*)HACKS->local);
+        ray_t ray;
+        auto pelvis = player->get_hitbox_position(HITBOX_PELVIS, nullptr);
+        ray.init(pos, pelvis);
+        c_game_trace tr;
+        HACKS->engine_trace->trace_ray(ray, MASK_SHOT, &filter, &tr);
+
+        if (tr.m_p_ent != player && tr.fraction != 1.f)
+            continue;
+
+        constexpr float HE_DAMAGE_MAX = 105.f;
+        constexpr float HE_RADIUS_INNER = 25.f;
+        constexpr float HE_RADIUS_FALLOFF = 140.f;
+
+        float d_factor = ((player->origin() - pos).length() - HE_RADIUS_INNER) / HE_RADIUS_FALLOFF;
+        float raw_dmg = HE_DAMAGE_MAX * std::exp(-(d_factor * d_factor));
+
+        int dmg = (int)std::ceil(calculate_armor_damage(raw_dmg, player->armor_value()));
+        dmg = std::max(0, dmg);
+
+        if (dmg > 0)
+        {
+            GrenadeDamageInfo info{ player, dmg, tr.endpos };
+            out.push_back(info);
+        }
+    }
+
+    return out;
+}
 
 void nade_path_t::perform_fly_collision_resolution(c_game_trace& trace)
 {
@@ -186,21 +287,46 @@ void c_grenade_prediction::draw_local_path()
 	RESTORE(list->Flags);
 	list->Flags |= ImDrawListFlags_AntiAliasedFill | ImDrawListFlags_AntiAliasedLines;
 
-	for (const auto& it : local_path.path)
-	{
-		if (RENDER->world_to_screen(prev, nade_start) && RENDER->world_to_screen(it.first, nade_end))
-		{
-			if (it.second)
-			{
-				RENDER->circle_filled(nade_end.x, nade_end.y, 4.f, c_color(30, 30, 30, 200), 15);
-				RENDER->circle_filled(nade_end.x, nade_end.y, 3.f, c_color(255, 255, 255, 255), 15);
-			}
+        for (const auto& it : local_path.path)
+        {
+                if (RENDER->world_to_screen(prev, nade_start) && RENDER->world_to_screen(it.first, nade_end))
+                {
+                        if (it.second)
+                        {
+                                RENDER->circle_filled(nade_end.x, nade_end.y, 4.f, c_color(30, 30, 30, 200), 15);
+                                RENDER->circle_filled(nade_end.x, nade_end.y, 3.f, c_color(255, 255, 255, 255), 15);
+                        }
 
-			RENDER->line(nade_start.x, nade_start.y, nade_end.x, nade_end.y, clr, 1.f);
-		}
+                        RENDER->line(nade_start.x, nade_start.y, nade_end.x, nade_end.y, clr, 1.f);
+                }
 
-		prev = it.first;
-	}
+                prev = it.first;
+        }
+
+        if (g_cfg.visuals.grenade_predict_damage && local_path.nade_idx == WEAPON_HEGRENADE)
+        {
+                vec3_t explosion_center = local_path.path.back().first;
+                float totaladded = 0.f;
+                while (totaladded < 30.f)
+                {
+                        if (HACKS->engine_trace->get_point_contents(explosion_center, MASK_SOLID_BRUSHONLY) == CONTENTS_EMPTY)
+                                break;
+                        totaladded += 2.f;
+                        explosion_center.z += 2.f;
+                }
+
+                auto dmg_list = PredictHEGrenadeDamage(explosion_center);
+                for (const auto& dmg : dmg_list)
+                {
+                        vec2_t pos{};
+                        if (RENDER->world_to_screen(dmg.impact_point_on_target, pos))
+                        {
+                                auto clr = g_cfg.misc.damage_clr.base();
+                                RENDER->text(pos.x, pos.y, clr, FONT_CENTERED_X | FONT_DROPSHADOW | FONT_LIGHT_BACK,
+                                        &RENDER->fonts.dmg, tfm::format(CXOR("%d"), dmg.damage).c_str());
+                        }
+                }
+        }
 }
 
 void c_grenade_prediction::calc_nade_path(c_base_combat_weapon* entity)

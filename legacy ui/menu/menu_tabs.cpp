@@ -1176,7 +1176,8 @@ void c_menu::draw_ui_items()
 						if (g_cfg.visuals.grenade_predict)
 							color_picker(CXOR("Prediction color"), g_cfg.visuals.predict_clr);
 
-						checkbox(CXOR("Projectile warning"), &g_cfg.visuals.grenade_warning);
+                                                checkbox(CXOR("Prediction grenade damage"), &g_cfg.visuals.grenade_predict_damage);
+                                                checkbox(CXOR("Projectile warning"), &g_cfg.visuals.grenade_warning);
 						checkbox(CXOR("Warning line"), &g_cfg.visuals.grenade_warning_line);
 						color_picker(CXOR("Warning color"), g_cfg.visuals.warning_clr);
 					}

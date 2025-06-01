@@ -298,7 +298,8 @@ namespace config
 				}
 			}
 
-			save_bool(visuals, CXOR("grenade_predict"), default_config.visuals.grenade_predict);
+                        save_bool(visuals, CXOR("grenade_predict"), default_config.visuals.grenade_predict);
+                        save_bool(visuals, CXOR("grenade_predict_damage"), default_config.visuals.grenade_predict_damage);
 			save_clr(visuals, CXOR("predict_clr"), &default_config.visuals.predict_clr);
 			save_bool(visuals, CXOR("show_all_history"), default_config.visuals.show_all_history);
 
@@ -628,8 +629,9 @@ namespace config
 				}
 			}
 
-			save_bool(visuals, CXOR("grenade_predict"), g_cfg.visuals.grenade_predict);
-			save_clr(visuals, CXOR("predict_clr"), &g_cfg.visuals.predict_clr);
+                        save_bool(visuals, CXOR("grenade_predict"), g_cfg.visuals.grenade_predict);
+                        save_bool(visuals, CXOR("grenade_predict_damage"), g_cfg.visuals.grenade_predict_damage);
+                        save_clr(visuals, CXOR("predict_clr"), &g_cfg.visuals.predict_clr);
 			save_bool(visuals, CXOR("show_all_history"), g_cfg.visuals.show_all_history);
 
 			save_bool(visuals, CXOR("local_glow"), g_cfg.visuals.local_glow);
@@ -970,8 +972,9 @@ namespace config
 				}
 			}
 
-			load_bool(visuals, CXOR("grenade_predict"), g_cfg.visuals.grenade_predict);
-			load_clr(visuals, CXOR("predict_clr"), g_cfg.visuals.predict_clr);
+                        load_bool(visuals, CXOR("grenade_predict"), g_cfg.visuals.grenade_predict);
+                        load_bool(visuals, CXOR("grenade_predict_damage"), g_cfg.visuals.grenade_predict_damage);
+                        load_clr(visuals, CXOR("predict_clr"), g_cfg.visuals.predict_clr);
 			load_bool(visuals, CXOR("show_all_history"), g_cfg.visuals.show_all_history);
 
 			load_bool(visuals, CXOR("local_glow"), g_cfg.visuals.local_glow);
