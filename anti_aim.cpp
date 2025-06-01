@@ -365,14 +365,37 @@ void c_anti_aim::freestanding()
 
 void c_anti_aim::at_targets()
 {
-	if (!g_cfg.antihit.at_targets || g_cfg.binds[edge_b].toggled || g_cfg.binds[left_b].toggled || g_cfg.binds[right_b].toggled || g_cfg.binds[back_b].toggled)
-		return;
+        if (g_cfg.antihit.anti_backstab)
+        {
+                LISTENER_ENTITY->for_each_player([&](c_cs_player* player)
+                {
+                        if (!player->is_alive() || player->has_gun_game_immunity())
+                                return;
 
-	auto player = get_closest_player(false, true);
-	if (!player)
-		return;
+                        auto weapon = (c_base_combat_weapon*)(HACKS->entity_list->get_client_entity_handle(player->active_weapon()));
+                        if (!weapon || !weapon->is_knife())
+                                return;
 
-	best_yaw = math::normalize_yaw(math::calc_angle(HACKS->local->get_abs_origin(), player->get_abs_origin()).y);
+                        const auto dist = (HACKS->local->get_abs_origin() - player->get_abs_origin()).length();
+                        if (dist < 250.f)
+                        {
+                                best_yaw = math::normalize_yaw(math::calc_angle(HACKS->local->get_abs_origin(), player->get_abs_origin()).y);
+                                anti_backstab = true;
+                        }
+                });
+
+                if (anti_backstab)
+                        return;
+        }
+
+        if (!g_cfg.antihit.at_targets || g_cfg.binds[edge_b].toggled || g_cfg.binds[left_b].toggled || g_cfg.binds[right_b].toggled || g_cfg.binds[back_b].toggled)
+                return;
+
+        auto player = get_closest_player(false, true);
+        if (!player)
+                return;
+
+        best_yaw = math::normalize_yaw(math::calc_angle(HACKS->local->get_abs_origin(), player->get_abs_origin()).y);
 }
 
 void c_anti_aim::fake()
@@ -766,8 +789,16 @@ void c_anti_aim::run()
 		break;
 	}
 
-	start_yaw = HACKS->cmd->viewangles.y;
-	best_yaw = HACKS->cmd->viewangles.y;
+        start_yaw = HACKS->cmd->viewangles.y;
+        best_yaw = HACKS->cmd->viewangles.y;
+
+        anti_backstab = false;
+        at_targets();
+        if (anti_backstab)
+        {
+                HACKS->cmd->viewangles.y = math::normalize_yaw(best_yaw);
+                return;
+        }
 
 #ifdef LEGACY
 	if (g_cfg.antihit.desync_mode)

@@ -236,7 +236,8 @@ namespace config
 		auto& antihit = json_obj[CXOR("antihit")];
 		{
 			save_bool(antihit, CXOR("enable"), default_config.antihit.enable);
-			save_bool(antihit, CXOR("at_targets"), default_config.antihit.at_targets);
+                        save_bool(antihit, CXOR("at_targets"), default_config.antihit.at_targets);
+                        save_bool(antihit, CXOR("anti_backstab"), default_config.antihit.anti_backstab);
 		//	save_bool(antihit, CXOR("silent_onshot"), default_config.antihit.silent_onshot);
 			save_bool(antihit, CXOR("def_pitch"), default_config.antihit.def_pitch);
 			save_bool(antihit, CXOR("def_yaw"), default_config.antihit.def_yaw);
@@ -567,7 +568,8 @@ namespace config
 		auto& antihit = json_obj[CXOR("antihit")];
 		{
 			save_bool(antihit, CXOR("enable"), g_cfg.antihit.enable);
-			save_bool(antihit, CXOR("at_targets"), g_cfg.antihit.at_targets);
+                        save_bool(antihit, CXOR("at_targets"), g_cfg.antihit.at_targets);
+                        save_bool(antihit, CXOR("anti_backstab"), g_cfg.antihit.anti_backstab);
 			//save_bool(antihit, CXOR("silent_onshot"), g_cfg.antihit.silent_onshot);
 			save_bool(antihit, CXOR("def_pitch"), g_cfg.antihit.def_pitch);
 			save_bool(antihit, CXOR("def_yaw"), g_cfg.antihit.def_yaw);
@@ -909,7 +911,8 @@ namespace config
 		auto& antihit = json_obj[CXOR("antihit")];
 		{
 			load_bool(antihit, CXOR("enable"), g_cfg.antihit.enable);
-			load_bool(antihit, CXOR("at_targets"), g_cfg.antihit.at_targets);
+                        load_bool(antihit, CXOR("at_targets"), g_cfg.antihit.at_targets);
+                        load_bool(antihit, CXOR("anti_backstab"), g_cfg.antihit.anti_backstab);
 		//	load_bool(antihit, CXOR("silent_onshot"), g_cfg.antihit.silent_onshot);
 			load_bool(antihit, CXOR("def_pitch"), g_cfg.antihit.def_pitch);
 			load_bool(antihit, CXOR("def_yaw"), g_cfg.antihit.def_yaw);

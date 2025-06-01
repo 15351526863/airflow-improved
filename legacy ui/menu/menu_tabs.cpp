@@ -856,7 +856,8 @@ void c_menu::draw_ui_items()
 #ifndef LEGACY
 					//checkbox(CXOR("Silent on-shot##antiaim"), &g_cfg.antihit.silent_onshot);
 #endif
-					checkbox(CXOR("At targets##antiaim"), &g_cfg.antihit.at_targets);
+                                        checkbox(CXOR("At targets##antiaim"), &g_cfg.antihit.at_targets);
+                                        checkbox(CXOR("Anti backstab##antiaim"), &g_cfg.antihit.anti_backstab);
 
 					combo(CXOR("Pitch"), &g_cfg.antihit.pitch, aa_pitch, IM_ARRAYSIZE(aa_pitch));
 					combo(CXOR("Yaw"), &g_cfg.antihit.yaw, aa_yaw, IM_ARRAYSIZE(aa_yaw));
