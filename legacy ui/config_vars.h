@@ -364,9 +364,10 @@ struct configs_t
 
 		std::array< esp_t, esp_max > esp{};
 
-		bool grenade_predict{};
+               bool grenade_predict{};
+               bool grenade_predict_damage{};
 
-		c_float_color predict_clr = c_float_color(156, 150, 255, 255);
+               c_float_color predict_clr = c_float_color(156, 150, 255, 255);
 
 		bool grenade_warning{};
 		bool grenade_warning_line{};
