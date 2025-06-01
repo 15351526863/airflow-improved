@@ -1,87 +1,74 @@
 #include "globals.hpp"
 #include "game_movement.hpp"
 #include "engine_prediction.hpp"
+#include <algorithm>
 
 namespace game_movement
 {
-	// yes it's pasteed..
-	INLINE void accelerate(c_user_cmd& user_cmd, const vec3_t& wishdir, const float wishspeed, vec3_t& velocity, float acceleration)
-	{
-		static auto sv_accelerate_use_weapon_speed = HACKS->convars.sv_accelerate_use_weapon_speed;
+       // yes it's pasteed..
+       INLINE void accelerate(c_user_cmd& user_cmd, const vec3_t& wishdir, float wishspeed, vec3_t& velocity, float accel)
+       {
+               auto stored_accel = accel;
+               auto currentspeed = velocity.dot(wishdir);
+               const float addspeed = wishspeed - currentspeed;
 
-		const auto cur_speed = velocity.dot(wishdir);
+               if (addspeed <= 0.f)
+                       return;
 
-		const auto add_speed = wishspeed - cur_speed;
-		if (add_speed <= 0.f)
-			return;
+               if (currentspeed < 0.f)
+                       currentspeed = 0.f;
 
-		const auto v57 = std::max(cur_speed, 0.f);
-		const auto ducking = user_cmd.buttons.has(IN_DUCK) || HACKS->local->ducking() || HACKS->local->flags().has(FL_DUCKING);
+               const bool is_ducking = user_cmd.buttons.has(IN_DUCK) || HACKS->local->ducking() || HACKS->local->flags().has(FL_DUCKING);
+               const bool is_walking = user_cmd.buttons.has(IN_SPEED) && !is_ducking;
 
-		auto v20 = true;
-		if (ducking || !(user_cmd.buttons.has(IN_SPEED)))
-			v20 = false;
+               constexpr float max_speed_const = 250.f;
+               auto acceleration_scale = std::max(max_speed_const, wishspeed);
+               auto goal_speed = acceleration_scale;
+               bool is_slow_sniper_scoped = false;
 
-		auto finalwishspeed = std::max(wishspeed, 250.f);
-		auto abs_finalwishspeed = finalwishspeed;
+               if (HACKS->weapon && HACKS->convars.sv_accelerate_use_weapon_speed->get_int())
+               {
+                       const auto item_index = static_cast<std::uint16_t>(HACKS->weapon->item_definition_index());
+                       is_slow_sniper_scoped = HACKS->weapon->zoom_level() > 0 &&
+                                               (item_index == 11 || item_index == 38 || item_index == 9 ||
+                                                item_index == 8 || item_index == 39 || item_index == 40) &&
+                                               (HACKS->weapon_info->max_speed * 0.52f) < 110.f;
 
-		auto max_speed = HACKS->local->is_scoped() ? HACKS->weapon_info->max_speed_alt : HACKS->weapon_info->max_speed;
+                       goal_speed *= std::min(1.f, (HACKS->weapon_info->max_speed / max_speed_const));
 
-		bool slow_down{};
-		if (HACKS->weapon && sv_accelerate_use_weapon_speed->get_bool())
-		{
-			const auto item_index = static_cast<std::uint16_t>(HACKS->weapon->item_definition_index());
-			if (HACKS->weapon->zoom_level() > 0 && (item_index == 11 || item_index == 38 || item_index == 9 || item_index == 8 || item_index == 39 || item_index == 40))
-				slow_down = (max_speed * 0.52f) < 110.f;
+                       if ((!is_ducking && !is_walking) || ((is_walking || is_ducking) && is_slow_sniper_scoped))
+                               acceleration_scale *= std::min(1.f, (HACKS->weapon_info->max_speed / max_speed_const));
+               }
 
-			const auto modifier = std::min(1.f, max_speed / 250.f);
-			abs_finalwishspeed *= modifier;
-			if ((!ducking && !v20) || slow_down)
-				finalwishspeed *= modifier;
-		}
+               if (is_ducking)
+               {
+                       if (!is_slow_sniper_scoped)
+                               acceleration_scale *= 0.34f;
 
-		if (ducking)
-		{
-			if (!slow_down)
-				finalwishspeed *= 0.34f;
+                       goal_speed *= 0.34f;
+               }
 
-			abs_finalwishspeed *= 0.34f;
-		}
+               if (is_walking)
+               {
+                       if (!is_slow_sniper_scoped)
+                               acceleration_scale *= 0.52f;
 
-		if (v20)
-		{
-			if (!slow_down)
-				finalwishspeed *= 0.52f;
+                       goal_speed *= 0.52f;
+               }
 
-			abs_finalwishspeed *= 0.52f;
+               if (is_walking && currentspeed > (goal_speed - 5.f))
+                       stored_accel *= std::clamp(
+                               1.f - (std::max(0.f, currentspeed - (goal_speed - 5.f)) /
+                                       std::max(0.f, goal_speed - (goal_speed - 5.f))), 0.f, 1.f);
 
-			const auto abs_finalwishspeed_minus5 = abs_finalwishspeed - 5.f;
-			if (v57 < abs_finalwishspeed_minus5)
-			{
-				const auto v30 =
-					std::max(v57 - abs_finalwishspeed_minus5, 0.f)
-					/ std::max(abs_finalwishspeed - abs_finalwishspeed_minus5, 0.f);
+               auto accelspeed =
+                       stored_accel * HACKS->global_vars->interval_per_tick * acceleration_scale * HACKS->local->surface_friction();
 
-				const auto v27 = 1.f - v30;
-				if (v27 >= 0.f)
-					acceleration = std::min(v27, 1.f) * acceleration;
-				else
-					acceleration = 0.f;
-			}
-		}
+               if (accelspeed > addspeed)
+                       accelspeed = addspeed;
 
-		const auto v33 = std::min(
-			add_speed,
-			((HACKS->global_vars->interval_per_tick * acceleration) * finalwishspeed)
-			* HACKS->local->surface_friction()
-		);
-
-		velocity += wishdir * v33;
-
-		const auto len = velocity.length();
-		if (len && len > max_speed)
-			velocity *= max_speed / len;
-	}
+               velocity += wishdir * accelspeed;
+       }
 
 	INLINE void walk_move(c_user_cmd& user_cmd, vec3_t& move, vec3_t& fwd, vec3_t& right, vec3_t& velocity)
 	{
