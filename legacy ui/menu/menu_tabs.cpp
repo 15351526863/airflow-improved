@@ -1370,7 +1370,8 @@ void c_menu::draw_ui_items()
 						key_bind(CXOR("Edge jump"), g_cfg.binds[ej_b]);
 
 						checkbox(CXOR("Fast stop"), &g_cfg.misc.fast_stop);
-						checkbox(CXOR("Slide walk"), &g_cfg.misc.slide_walk);
+                                               checkbox(CXOR("Slide walk"), &g_cfg.misc.slide_walk);
+                                               checkbox(CXOR("Super Toss"), &g_cfg.misc.compensate_throwable);
 					}
 					end_child;
 				}

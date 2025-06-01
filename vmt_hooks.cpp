@@ -563,7 +563,9 @@ namespace hooks::vmt
 		if (cmd)
 			std::memcpy(&EXPLOITS->first_cmd, cmd, sizeof(c_user_cmd));
 
-		HACKS->cmd = cmd;
+               HACKS->cmd = cmd;
+               MOVEMENT->last_local_velocity = MOVEMENT->local_velocity;
+               MOVEMENT->local_velocity = HACKS->local->velocity();
 		{
 			CLANTAG->run();
 

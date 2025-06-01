@@ -51,7 +51,10 @@ private:
 	
 	vec3_t base_view_angle{};
 
-	auto_peek_info_t peek_info{};
+        auto_peek_info_t peek_info{};
+
+       vec3_t local_velocity{};
+       vec3_t last_local_velocity{};
 
 	void update_ground_ticks();
 
@@ -60,7 +63,9 @@ private:
 
 	void fast_stop();
 
-	void edge_jump();
+        void edge_jump();
+
+        void super_toss();
 
 	bool can_use_auto_peek();
 	void auto_peek();
@@ -84,9 +89,11 @@ public:
 		circle_yaw = 0.f;
 		old_yaw = 0.f;
 
-		base_view_angle.reset();
-		peek_info.reset();
-	}
+               base_view_angle.reset();
+               peek_info.reset();
+               local_velocity.reset();
+               last_local_velocity.reset();
+       }
 
 	INLINE vec3_t& get_base_angle()
 	{
