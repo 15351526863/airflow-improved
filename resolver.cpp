@@ -15,6 +15,7 @@ void resolver_analytics::log_tick(const tick_data& data) {
     data_log.push_back(data);
 }
 
+// for fucking debug this shit
 void resolver_analytics::export_csv(const std::string& filename) {
     std::ofstream file(filename);
     if (!file.is_open()) return;
@@ -211,14 +212,15 @@ namespace resolver {
         constexpr float w = 2.f * float(M_PI) * float(resolver_info_t::jitter_info_t::GOERTZEL_K) / N;
         float coeff = 2.f * std::cosf(w);
 
-        float q0 = newest + coeff * j.goertzel_q[1] - j.goertzel_q[2];
-        j.goertzel_q[2] = j.goertzel_q[1];
-        j.goertzel_q[1] = j.goertzel_q[0];
-        j.goertzel_q[0] = q0;
+        float q_new = newest + coeff * j.goertzel_q1 - j.goertzel_q2;
 
-        float power = j.goertzel_q[2] * j.goertzel_q[2] +
-            j.goertzel_q[1] * j.goertzel_q[1] -
-            coeff * j.goertzel_q[1] * j.goertzel_q[2];
+        j.goertzel_q2 = j.goertzel_q1;
+        j.goertzel_q1 = j.goertzel_q0;
+        j.goertzel_q0 = q_new;
+
+        float power = j.goertzel_q1 * j.goertzel_q1 +
+            j.goertzel_q2 * j.goertzel_q2 -
+            coeff * j.goertzel_q1 * j.goertzel_q2;
         j.autocorr = power / (N * N);
         j.high_freq_jitter = j.autocorr > 8.f;
         j.is_jitter = j.variance > 9.f || j.high_freq_jitter;
@@ -406,8 +408,8 @@ namespace resolver {
     void prepare_side(c_cs_player* p, anim_record_t* cur, anim_record_t* last) {
         auto& info = resolver_info[p->index()];
 
-        if (!HACKS->weapon_info || !HACKS->local || !HACKS->local->is_alive() /* ||
-            p->is_bot() */ || !g_cfg.rage.resolver) {
+        if (!HACKS->weapon_info || !HACKS->local || !HACKS->local->is_alive() ||
+            p->is_bot() || !g_cfg.rage.resolver) {
             if (info.resolved) {
                 info.reset();
             }
@@ -459,14 +461,15 @@ namespace resolver {
         conf.reset();
 
         auto features = extract_features(p, info, cur);
-        int neural_side = info.neural_net->predict(features);
+        info.kan_net->adapt_grid_ranges(features);
+        int kan_side = info.kan_net->predict(features);
 
-        float neural_confidence = 0.8f;
-        conf.jitter = std::max(conf.jitter, neural_confidence);
+        float kan_confidence = 0.85f;
+        conf.jitter = std::max(conf.jitter, kan_confidence);
 
-        int best_side = neural_side;
-        float best_score = neural_confidence;
-        const char* best_mode = "neural";
+        int best_side = kan_side;
+        float best_score = kan_confidence;
+        const char* best_mode = "kan";
 
         auto update_best = [&](float score, int side, const char* mode, float& confidence) {
             confidence = std::max(confidence, score);
@@ -624,7 +627,7 @@ namespace resolver {
             });
 
         auto features = extract_features(p, info, nullptr);
-        info.neural_net->update(features, info.side, hit);
+        info.kan_net->update(features, info.side, hit);
 
         if (info.state == resolver_state::BRUTE_FORCING && step >= 0 && step < 7) {
             auto ctx = g_context.make_feature_vector();
@@ -642,7 +645,7 @@ namespace resolver {
         int method_idx = -1;
         const std::string& mode = info.mode;
         if (mode.find("jitter") != std::string::npos || mode.find("cwt") != std::string::npos ||
-            mode.find("neural") != std::string::npos || mode.find("ukf") != std::string::npos ||
+            mode.find("kan") != std::string::npos || mode.find("ukf") != std::string::npos ||
             mode.find("particle") != std::string::npos) {
             method_idx = 0;
         }
@@ -701,6 +704,7 @@ namespace resolver {
         st->abs_yaw = yaw;
     }
 
+    // ????
     void prepare_side_improved(c_cs_player* p, anim_record_t* cur, anim_record_t* last) {
         prepare_side(p, cur, last);
     }
