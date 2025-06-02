@@ -381,32 +381,88 @@ private:
     }
 };
 
-struct neural_resolver_t {
+struct kan_resolver_t {
     static constexpr int INPUT_SIZE = 16;
     static constexpr int HIDDEN_SIZE = 32;
     static constexpr int OUTPUT_SIZE = 2;
+    static constexpr int SPLINE_ORDER = 4;
+    static constexpr int NUM_KNOTS = 8;
+    static constexpr int NUM_COEFFS = NUM_KNOTS + SPLINE_ORDER - 1;
 
-    std::array<std::array<float, HIDDEN_SIZE>, INPUT_SIZE> w1{};
-    std::array<float, HIDDEN_SIZE> b1{};
-    std::array<std::array<float, OUTPUT_SIZE>, HIDDEN_SIZE> w2{};
-    std::array<float, OUTPUT_SIZE> b2{};
+    struct spline_edge {
+        std::array<float, NUM_COEFFS> coeffs{};
+        float grid_min{ -2.f };
+        float grid_max{ 2.f };
+
+        INLINE float evaluate(float x) const {
+            x = std::clamp(x, grid_min, grid_max);
+            float t = (x - grid_min) / (grid_max - grid_min) * (NUM_KNOTS - 1);
+            int k = std::min(int(t), NUM_KNOTS - 2);
+            t -= k;
+
+            float b0 = (1.f - t) * (1.f - t) * (1.f - t) / 6.f;
+            float b1 = (3.f * t * t * t - 6.f * t * t + 4.f) / 6.f;
+            float b2 = (-3.f * t * t * t + 3.f * t * t + 3.f * t + 1.f) / 6.f;
+            float b3 = t * t * t / 6.f;
+
+            return coeffs[k] * b0 + coeffs[k + 1] * b1 +
+                coeffs[k + 2] * b2 + coeffs[k + 3] * b3;
+        }
+
+        INLINE std::pair<std::array<float, 4>, std::array<float, 4>> evaluate_with_basis_and_deriv(float x, int& k_out) const {
+            x = std::clamp(x, grid_min, grid_max);
+            float grid_range = grid_max - grid_min;
+            float t = (x - grid_min) / grid_range * (NUM_KNOTS - 1);
+            int k = std::min(int(t), NUM_KNOTS - 2);
+            k_out = k;
+            t -= k;
+
+            std::array<float, 4> basis{};
+            basis[0] = (1.f - t) * (1.f - t) * (1.f - t) / 6.f;
+            basis[1] = (3.f * t * t * t - 6.f * t * t + 4.f) / 6.f;
+            basis[2] = (-3.f * t * t * t + 3.f * t * t + 3.f * t + 1.f) / 6.f;
+            basis[3] = t * t * t / 6.f;
+
+            float dt_dx = (NUM_KNOTS - 1) / grid_range;
+
+            std::array<float, 4> basis_deriv{};
+            basis_deriv[0] = -0.5f * (1.f - t) * (1.f - t) * dt_dx;
+            basis_deriv[1] = (1.5f * t * t - 2.f * t) * dt_dx;
+            basis_deriv[2] = (-1.5f * t * t + t + 0.5f) * dt_dx;
+            basis_deriv[3] = 0.5f * t * t * dt_dx;
+
+            return { basis, basis_deriv };
+        }
+    };
+
+    std::array<std::array<spline_edge, HIDDEN_SIZE>, INPUT_SIZE> layer1_edges{};
+    std::array<std::array<spline_edge, OUTPUT_SIZE>, HIDDEN_SIZE> layer2_edges{};
 
     float learning_rate{ 0.001f };
+    float l1_lambda{ 0.01f };
+
+    std::mt19937 rng{ std::random_device{}() };
 
     INLINE void init() {
-        std::mt19937 rng{ std::random_device{}() };
-        std::normal_distribution<float> dist(0.f, std::sqrt(2.f / INPUT_SIZE));
+        std::normal_distribution<float> dist(0.f, 0.1f);
 
-        for (auto& row : w1) {
-            for (auto& w : row) {
-                w = dist(rng);
+        for (auto& input_edges : layer1_edges) {
+            for (auto& edge : input_edges) {
+                for (auto& coeff : edge.coeffs) {
+                    coeff = dist(rng);
+                }
+                edge.grid_min = -2.f;
+                edge.grid_max = 2.f;
             }
         }
 
-        dist = std::normal_distribution<float>(0.f, std::sqrt(2.f / HIDDEN_SIZE));
-        for (auto& row : w2) {
-            for (auto& w : row) {
-                w = dist(rng);
+        for (auto& hidden_edges : layer2_edges) {
+            for (auto& edge : hidden_edges) {
+                for (auto& coeff : edge.coeffs) {
+                    coeff = dist(rng);
+                }
+                edge.grid_min = -2.f;
+                edge.grid_max = 2.f;
             }
         }
     }
@@ -415,99 +471,185 @@ struct neural_resolver_t {
         std::array<float, HIDDEN_SIZE> hidden{};
 
 #pragma omp simd
-        for (int i = 0; i < HIDDEN_SIZE; ++i) {
-            float sum = b1[i];
-            for (int j = 0; j < INPUT_SIZE; ++j) {
-                sum += input[j] * w1[j][i];
+        for (int h = 0; h < HIDDEN_SIZE; ++h) {
+            float sum = 0.f;
+            for (int i = 0; i < INPUT_SIZE; ++i) {
+                sum += layer1_edges[i][h].evaluate(input[i]);
             }
-            hidden[i] = std::max(0.f, sum);
+            hidden[h] = sum;
         }
 
         std::array<float, OUTPUT_SIZE> output{};
 
 #pragma omp simd
-        for (int i = 0; i < OUTPUT_SIZE; ++i) {
-            float sum = b2[i];
-            for (int j = 0; j < HIDDEN_SIZE; ++j) {
-                sum += hidden[j] * w2[j][i];
+        for (int o = 0; o < OUTPUT_SIZE; ++o) {
+            float sum = 0.f;
+            for (int h = 0; h < HIDDEN_SIZE; ++h) {
+                sum += layer2_edges[h][o].evaluate(hidden[h]);
             }
-            output[i] = sum;
+            output[o] = sum;
         }
 
         float max_val = *std::max_element(output.begin(), output.end());
-        float sum = 0.f;
+        float sum_exp = 0.f;
 
         for (auto& o : output) {
             o = std::exp(o - max_val);
-            sum += o;
+            sum_exp += o;
         }
 
         for (auto& o : output) {
-            o /= sum;
+            o /= sum_exp;
         }
 
         return output;
     }
 
     INLINE void update(const std::array<float, INPUT_SIZE>& input, int true_side, bool hit) {
-        if (true_side == 0) {
-            return;
-        }
-
-        float target = hit ? 1.f : 0.f;
-        float reward = hit ? 1.f : -0.5f;
-
         auto output = forward(input);
 
         std::array<float, OUTPUT_SIZE> grad_output{};
-        grad_output[0] = (true_side < 0 ? target : 0.f) - output[0];
-        grad_output[1] = (true_side > 0 ? target : 0.f) - output[1];
+        if (true_side != 0) {
+            float target0 = true_side < 0 ? 1.f : 0.f;
+            float target1 = true_side > 0 ? 1.f : 0.f;
 
-        for (auto& g : grad_output) {
-            g *= reward * learning_rate;
+            grad_output[0] = output[0] - target0;
+            grad_output[1] = output[1] - target1;
+        }
+        else {
+            float entropy_grad_scale = 0.1f;
+            grad_output[0] = entropy_grad_scale * (output[0] - 0.5f);
+            grad_output[1] = entropy_grad_scale * (output[1] - 0.5f);
         }
 
         std::array<float, HIDDEN_SIZE> hidden{};
-        for (int i = 0; i < HIDDEN_SIZE; ++i) {
-            float sum = b1[i];
-            for (int j = 0; j < INPUT_SIZE; ++j) {
-                sum += input[j] * w1[j][i];
+        std::array<std::array<int, HIDDEN_SIZE>, INPUT_SIZE> layer1_k{};
+        std::array<std::array<std::pair<std::array<float, 4>, std::array<float, 4>>, HIDDEN_SIZE>, INPUT_SIZE> layer1_basis_deriv{};
+
+        for (int h = 0; h < HIDDEN_SIZE; ++h) {
+            float sum = 0.f;
+            for (int i = 0; i < INPUT_SIZE; ++i) {
+                int k;
+                auto [basis, deriv] = layer1_edges[i][h].evaluate_with_basis_and_deriv(input[i], k);
+                layer1_k[i][h] = k;
+                layer1_basis_deriv[i][h] = { basis, deriv };
+
+                for (int b = 0; b < 4; ++b) {
+                    sum += layer1_edges[i][h].coeffs[k + b] * basis[b];
+                }
             }
-            hidden[i] = std::max(0.f, sum);
+            hidden[h] = sum;
+        }
+
+        std::array<std::array<int, OUTPUT_SIZE>, HIDDEN_SIZE> layer2_k{};
+        std::array<std::array<std::pair<std::array<float, 4>, std::array<float, 4>>, OUTPUT_SIZE>, HIDDEN_SIZE> layer2_basis_deriv{};
+
+        for (int o = 0; o < OUTPUT_SIZE; ++o) {
+            for (int h = 0; h < HIDDEN_SIZE; ++h) {
+                int k;
+                auto [basis, deriv] = layer2_edges[h][o].evaluate_with_basis_and_deriv(hidden[h], k);
+                layer2_k[h][o] = k;
+                layer2_basis_deriv[h][o] = { basis, deriv };
+            }
         }
 
         std::array<float, HIDDEN_SIZE> grad_hidden{};
-        for (int i = 0; i < HIDDEN_SIZE; ++i) {
-            for (int j = 0; j < OUTPUT_SIZE; ++j) {
-                grad_hidden[i] += grad_output[j] * w2[i][j];
-            }
-            if (hidden[i] <= 0.f) grad_hidden[i] = 0.f;
-        }
 
-        for (int i = 0; i < HIDDEN_SIZE; ++i) {
-            for (int j = 0; j < OUTPUT_SIZE; ++j) {
-                w2[i][j] += grad_output[j] * hidden[i];
-            }
-        }
+        for (int h = 0; h < HIDDEN_SIZE; ++h) {
+            for (int o = 0; o < OUTPUT_SIZE; ++o) {
+                int k = layer2_k[h][o];
+                auto& [basis, deriv] = layer2_basis_deriv[h][o];
 
-        for (int i = 0; i < OUTPUT_SIZE; ++i) {
-            b2[i] += grad_output[i];
+                for (int b = 0; b < 4; ++b) {
+                    float grad = grad_output[o] * basis[b];
+                    layer2_edges[h][o].coeffs[k + b] -= learning_rate * grad;
+
+                    float coeff_value = layer2_edges[h][o].coeffs[k + b];
+                    if (std::abs(coeff_value) > EPSILON) {
+                        float l1_grad = l1_lambda * (coeff_value > 0 ? 1.f : -1.f);
+                        float new_value = coeff_value - learning_rate * l1_grad;
+
+                        if (coeff_value * new_value < 0.f) {
+                            layer2_edges[h][o].coeffs[k + b] = 0.f;
+                        }
+                        else {
+                            layer2_edges[h][o].coeffs[k + b] = new_value;
+                        }
+                    }
+                }
+
+                float spline_deriv_sum = 0.f;
+                for (int b = 0; b < 4; ++b) {
+                    spline_deriv_sum += layer2_edges[h][o].coeffs[k + b] * deriv[b];
+                }
+                grad_hidden[h] += grad_output[o] * spline_deriv_sum;
+            }
         }
 
         for (int i = 0; i < INPUT_SIZE; ++i) {
-            for (int j = 0; j < HIDDEN_SIZE; ++j) {
-                w1[i][j] += grad_hidden[j] * input[i];
+            for (int h = 0; h < HIDDEN_SIZE; ++h) {
+                int k = layer1_k[i][h];
+                auto& [basis, deriv] = layer1_basis_deriv[i][h];
+
+                for (int b = 0; b < 4; ++b) {
+                    float grad = grad_hidden[h] * basis[b];
+                    layer1_edges[i][h].coeffs[k + b] -= learning_rate * grad;
+
+                    float coeff_value = layer1_edges[i][h].coeffs[k + b];
+                    if (std::abs(coeff_value) > EPSILON) {
+                        float l1_grad = l1_lambda * (coeff_value > 0 ? 1.f : -1.f);
+                        float new_value = coeff_value - learning_rate * l1_grad;
+
+                        if (coeff_value * new_value < 0.f) {
+                            layer1_edges[i][h].coeffs[k + b] = 0.f;
+                        }
+                        else {
+                            layer1_edges[i][h].coeffs[k + b] = new_value;
+                        }
+                    }
+                }
             }
         }
 
-        for (int i = 0; i < HIDDEN_SIZE; ++i) {
-            b1[i] += grad_hidden[i];
+        float total_l1 = 0.f;
+        for (const auto& input_edges : layer1_edges) {
+            for (const auto& edge : input_edges) {
+                for (float coeff : edge.coeffs) {
+                    total_l1 += std::abs(coeff);
+                }
+            }
+        }
+
+        if (total_l1 > 100.f) {
+            float scale = 100.f / total_l1;
+            for (auto& input_edges : layer1_edges) {
+                for (auto& edge : input_edges) {
+                    for (auto& coeff : edge.coeffs) {
+                        coeff *= scale;
+                    }
+                }
+            }
         }
     }
 
     INLINE int predict(const std::array<float, INPUT_SIZE>& input) {
         auto output = forward(input);
         return output[1] > output[0] ? 1 : -1;
+    }
+
+    INLINE void adapt_grid_ranges(const std::array<float, INPUT_SIZE>& input) {
+        float adapt_rate = 0.01f;
+
+        for (int i = 0; i < INPUT_SIZE; ++i) {
+            for (int h = 0; h < HIDDEN_SIZE; ++h) {
+                auto& edge = layer1_edges[i][h];
+                edge.grid_min += adapt_rate * (input[i] - edge.grid_min);
+                edge.grid_max += adapt_rate * (input[i] - edge.grid_max);
+
+                edge.grid_min = std::min(edge.grid_min, -0.1f);
+                edge.grid_max = std::max(edge.grid_max, 0.1f);
+            }
+        }
     }
 };
 
@@ -576,7 +718,9 @@ struct resolver_info_t {
         float mean{};
         float m2{};
 
-        alignas(16) float goertzel_q[4]{};
+        alignas(16) float goertzel_q0{};
+        alignas(16) float goertzel_q1{};
+        alignas(16) float goertzel_q2{};
         static constexpr int GOERTZEL_K = 2;
 
         enum class jitter_state : uint8_t {
@@ -646,7 +790,9 @@ struct resolver_info_t {
             static_ticks = 0;
             delta_variance = 0.f;
             machine.reset();
-            std::memset(goertzel_q, 0, sizeof(goertzel_q));
+            goertzel_q0 = 0.f;
+            goertzel_q1 = 0.f;
+            goertzel_q2 = 0.f;
             mean = 0.f;
             m2 = 0.f;
             wavelet_re = 0.f;
@@ -660,7 +806,7 @@ struct resolver_info_t {
 
     std::unique_ptr<full_ukf_t> ukf{ std::make_unique<full_ukf_t>() };
     std::unique_ptr<particle_filter_t> particle_filter{ std::make_unique<particle_filter_t>() };
-    std::unique_ptr<neural_resolver_t> neural_net{ std::make_unique<neural_resolver_t>() };
+    std::unique_ptr<kan_resolver_t> kan_net{ std::make_unique<kan_resolver_t>() };
 
     struct contextual_bandit_t {
         static constexpr int NUM_ARMS = 7;
@@ -910,7 +1056,7 @@ struct resolver_info_t {
         jitter.reset();
         ukf->reset();
         particle_filter->init(0.f);
-        neural_net->init();
+        kan_net->init();
         bandit.init();
 
         adaptive_confidence = {};
