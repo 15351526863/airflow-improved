@@ -10,17 +10,16 @@
 #include <fstream>
 #include <mutex>
 
-// Implementation of resolver_analytics methods (outside namespace)
 void resolver_analytics::log_tick(const tick_data& data) {
     std::lock_guard<std::mutex> lock(data_mutex);
     data_log.push_back(data);
 }
 
 void resolver_analytics::export_csv(const std::string& filename) {
-    std::lock_guard<std::mutex> lock(data_mutex);
-
     std::ofstream file(filename);
     if (!file.is_open()) return;
+
+    std::lock_guard<std::mutex> lock(data_mutex);
 
     file << "timestamp,player_id,predicted_yaw,confidence,chosen_side,hit\n";
 
@@ -102,9 +101,13 @@ namespace resolver {
         __m512 im_acc = _mm512_setzero_ps();
 
         for (int n = 0; n < WN; n += 16) {
+            int blk = std::min(16, WN - n);
             alignas(64) float delta_vals[16];
-            for (int i = 0; i < 16 && n + i < WN; ++i) {
-                delta_vals[i] = j.delta_history[n + i];
+            for (int i = 0; i < blk; ++i) {
+                delta_vals[i] = j.delta_history.get_chronological(n + i);
+            }
+            for (int i = blk; i < 16; ++i) {
+                delta_vals[i] = 0.f;
             }
 
             __m512 delta_vec = _mm512_load_ps(delta_vals);
@@ -123,10 +126,13 @@ namespace resolver {
         float32x4_t im_acc = vdupq_n_f32(0.0f);
 
         for (int n = 0; n < WN; n += 4) {
-            float32x4_t delta_vec = {
-                j.delta_history[n], j.delta_history[n + 1],
-                j.delta_history[n + 2], j.delta_history[n + 3]
-            };
+            int blk = std::min(4, WN - n);
+            float delta_vals[4] = { 0.f, 0.f, 0.f, 0.f };
+            for (int i = 0; i < blk; ++i) {
+                delta_vals[i] = j.delta_history.get_chronological(n + i);
+            }
+
+            float32x4_t delta_vec = vld1q_f32(delta_vals);
             float32x4_t psi_re_vec = vld1q_f32(&ψ_re[n]);
             float32x4_t psi_im_vec = vld1q_f32(&ψ_im[n]);
 
@@ -148,10 +154,10 @@ namespace resolver {
         for (int n = 0; n < WN; n += 8) {
             alignas(32) float delta_vals[8];
             for (int i = 0; i < 8; ++i) {
-                delta_vals[i] = j.delta_history[n + i];
+                delta_vals[i] = j.delta_history.get_chronological(n + i);
             }
 
-            __m256 delta_vec = _mm256_load_ps(delta_vals);
+            __m256 delta_vec = _mm256_loadu_ps(delta_vals);
             __m256 psi_re_vec = _mm256_load_ps(&ψ_re[n]);
             __m256 psi_im_vec = _mm256_load_ps(&ψ_im[n]);
 
@@ -175,19 +181,19 @@ namespace resolver {
 #endif
 
         j.strength = std::sqrt(j.wavelet_re * j.wavelet_re + j.wavelet_im * j.wavelet_im);
-        j.is_jitter = j.strength > 80.f;
-        j.high_freq_jitter = j.strength > 150.f;
+        j.is_jitter = j.strength > 25.f;
+        j.high_freq_jitter = j.strength > 50.f;
 
         float sum = 0.f;
         for (int i = 0; i < WN; ++i) {
-            sum += j.delta_history[i];
+            sum += j.delta_history.get_chronological(i);
         }
         float mean = sum / WN;
 
         float var = 0.f;
 #pragma omp simd reduction(+:var)
         for (int i = 0; i < WN; ++i) {
-            float d = j.delta_history[i] - mean;
+            float d = j.delta_history.get_chronological(i) - mean;
             var += d * d;
         }
         j.variance = var / WN;
@@ -197,24 +203,18 @@ namespace resolver {
 
     static INLINE void update_jitter_incremental_vectorized(resolver_info_t::jitter_info_t& j, float newest) {
         constexpr int N = DELTA_WINDOW;
-        j.mean += (newest - j.mean) / float(N);
-        j.m2 += (newest - j.mean) * (newest - j.mean);
+        float oldMean = j.mean;
+        j.mean += (newest - oldMean) / float(N);
+        j.m2 += (newest - oldMean) * (newest - j.mean);
         j.variance = j.m2 / (N - 1);
 
         constexpr float w = 2.f * float(M_PI) * float(resolver_info_t::jitter_info_t::GOERTZEL_K) / N;
         float coeff = 2.f * std::cosf(w);
 
-        __m128 q_vec = _mm_load_ps(j.goertzel_q);
-        __m128 coeff_vec = _mm_set1_ps(coeff);
-        __m128 newest_vec = _mm_set1_ps(newest);
-
-        __m128 q1_vec = _mm_shuffle_ps(q_vec, q_vec, _MM_SHUFFLE(1, 1, 1, 1));
-        __m128 q2_vec = _mm_shuffle_ps(q_vec, q_vec, _MM_SHUFFLE(2, 2, 2, 2));
-
-        __m128 q0 = _mm_fmadd_ps(coeff_vec, q1_vec, _mm_sub_ps(newest_vec, q2_vec));
-
+        float q0 = newest + coeff * j.goertzel_q[1] - j.goertzel_q[2];
         j.goertzel_q[2] = j.goertzel_q[1];
-        j.goertzel_q[1] = _mm_cvtss_f32(q0);
+        j.goertzel_q[1] = j.goertzel_q[0];
+        j.goertzel_q[0] = q0;
 
         float power = j.goertzel_q[2] * j.goertzel_q[2] +
             j.goertzel_q[1] * j.goertzel_q[1] -
@@ -255,23 +255,24 @@ namespace resolver {
             d = norm_angle(d);
 
             j.delta_cache.push(d);
-            j.delta_history.push(d);
 
             float sum = 0.f;
             for (int i = 0; i < CACHE_SIZE; ++i) {
-                sum += j.delta_cache[i];
+                sum += j.delta_cache.get_chronological(i);
             }
             float mean = sum / float(CACHE_SIZE);
 
             float var = 0.f;
             for (int i = 0; i < CACHE_SIZE; ++i) {
-                float dd = j.delta_cache[i] - mean;
+                float dd = j.delta_cache.get_chronological(i) - mean;
                 var += dd * dd;
             }
             j.delta_variance = var / float(CACHE_SIZE - 1);
 
             update_jitter_incremental_vectorized(j, d);
 
+            float tick_interval = 1.f / float(g_context.tick_rate);
+            info.ukf->set_dt(tick_interval);
             info.ukf->predict();
             info.ukf->update(c->eye_angles.y);
 
@@ -307,11 +308,11 @@ namespace resolver {
         static std::array<phase_hmm_t, 65> phase_models{};
         auto& hmm = phase_models[idx];
 
-        float current_yaw = j.yaw_cache[0];
-        float prev_yaw = j.yaw_cache[1];
+        float current_yaw = j.yaw_cache.get_chronological(0);
+        float prev_yaw = j.yaw_cache.get_chronological(1);
         float d = norm_angle(current_yaw - prev_yaw);
 
-        hmm.update(d > 0.f ? 1 : -1);
+        hmm.update(d < 0.f ? -1 : 1);
         return hmm.best();
     }
 
@@ -371,7 +372,6 @@ namespace resolver {
         c_trace_filter filter{};
         filter.skip = p;
 
-        // Perform traces without copying c_game_trace objects
         for (int i = 0; i < 4; ++i) {
             c_game_trace tr{};
             HACKS->engine_trace->trace_ray(
@@ -384,7 +384,9 @@ namespace resolver {
 
         info.freestanding.left_fraction = left_frac;
         info.freestanding.right_fraction = right_frac;
-        info.freestanding.side = left_frac < right_frac ? 1 : -1;
+        info.freestanding.side =
+            std::fabs(left_frac - right_frac) < 1e-3f ? 0 :
+            (left_frac < right_frac ? 1 : -1);
         info.freestanding.update_time = HACKS->global_vars->curtime;
         info.freestanding.updated = true;
     }
@@ -404,8 +406,8 @@ namespace resolver {
     void prepare_side(c_cs_player* p, anim_record_t* cur, anim_record_t* last) {
         auto& info = resolver_info[p->index()];
 
-        if (!HACKS->weapon_info || !HACKS->local || !HACKS->local->is_alive() ||
-            p->is_bot() || !g_cfg.rage.resolver) {
+        if (!HACKS->weapon_info || !HACKS->local || !HACKS->local->is_alive() /* ||
+            p->is_bot() */ || !g_cfg.rage.resolver) {
             if (info.resolved) {
                 info.reset();
             }
@@ -442,6 +444,7 @@ namespace resolver {
             info.resolved = false;
             info.mode = "no fake";
             info.state = resolver_state::IDLE;
+            info.brute_step = 0;
             return;
         }
 
@@ -582,7 +585,7 @@ namespace resolver {
         if (info.resolved) {
             if (info.state == resolver_state::BRUTE_FORCING &&
                 info.brute_step >= 0 && info.brute_step < 7) {
-                float offset = info.desync_optimizer.next_test_point();
+                float offset = info.brute_offsets[info.brute_step];
                 yaw = norm_angle(yaw + offset);
             }
             else {
@@ -594,7 +597,8 @@ namespace resolver {
                 float angular_velocity = 0.f;
                 if (info.jitter.yaw_cache.index > 1) {
                     float dt = HACKS->global_vars->interval_per_tick;
-                    angular_velocity = norm_angle(info.jitter.yaw_cache[0] - info.jitter.yaw_cache[1]) / dt;
+                    angular_velocity = norm_angle(info.jitter.yaw_cache.get_chronological(0) -
+                        info.jitter.yaw_cache.get_chronological(1)) / dt;
                 }
 
                 float compensated = info.latency_compensator.compensate_angle(
@@ -633,10 +637,6 @@ namespace resolver {
             };
 
             info.bandit.update(step, bandit_context, hit);
-
-            if (info.state == resolver_state::BRUTE_FORCING) {
-                info.desync_optimizer.update_result(info.brute_offsets[step], hit);
-            }
         }
 
         int method_idx = -1;
