@@ -15,11 +15,12 @@ struct client_verify_t
 
 struct hitmarker_t
 {
-	int dmg{};
-	int hp{};
+        int dmg{};
+        int hp{};
+        bool headshot{};
 
-	float time{};
-	float dmg_time{};
+        float time{};
+        float dmg_time{};
 	float alpha{};
 	float impact_time{};
 
