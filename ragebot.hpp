@@ -149,10 +149,26 @@ private:
 
 	std::vector<int> hitboxes{};
 
-	vec3_t predicted_eye_pos{};
-	rage_player_t rage_players[65]{};
+        vec3_t predicted_eye_pos{};
+        rage_player_t rage_players[65]{};
 
-	std::vector<aim_shot_record_t> shots{};
+        struct aim_point_visual_t
+        {
+                bool valid{};
+                int hitbox{};
+                vec3_t point{};
+
+                INLINE void reset()
+                {
+                        valid = false;
+                        hitbox = 0;
+                        point.reset();
+                }
+        };
+
+        aim_point_visual_t aim_points[65]{};
+
+        std::vector<aim_shot_record_t> shots{};
 
 	struct table_t
 	{
@@ -212,7 +228,12 @@ public:
 	bool revolver_fire{};
 	int missed_shots[65]{};
 	rage_player_t best_rage_player{};
-	rage_weapon_t rage_config{};
+        rage_weapon_t rage_config{};
+
+        INLINE aim_point_visual_t* get_aim_point(int idx)
+        {
+                return &aim_points[idx];
+        }
 
 	INLINE float get_dynamic_scale(const vec3_t& point, const float& hitbox_radius)
 	{
@@ -282,9 +303,12 @@ public:
 		rage_config = {};
 		best_rage_player.reset();
 		predicted_eye_pos.reset();
-		hitboxes.clear();
-		shots.clear();
-	}
+                hitboxes.clear();
+                shots.clear();
+
+                for (auto& i : aim_points)
+                        i.reset();
+        }
 
 	INLINE void build_seeds()
 	{
