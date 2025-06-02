@@ -20,19 +20,22 @@ constexpr auto misc_ui_flags = ImGuiWindowFlags_NoSavedSettings
 
 std::string get_bind_type(int type)
 {
-	switch (type)
-	{
-	case 0:
-		return CXOR("[ enabled ]");
-		break;
-	case 1:
-		return CXOR("[ hold ]");
-		break;
-	case 2:
-		return CXOR("[ toggled ]");
-		break;
-	}
-	return "";
+        switch (type)
+        {
+        case 0:
+                return CXOR("[ enabled ]");
+                break;
+        case 1:
+                return CXOR("[ hold ]");
+                break;
+        case 2:
+                return CXOR("[ toggled ]");
+                break;
+        case 3:
+                return CXOR("[ off ]");
+                break;
+        }
+        return "";
 }
 
 void c_menu::draw_binds()

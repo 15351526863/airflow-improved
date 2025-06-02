@@ -139,8 +139,8 @@ bool c_menu::key_bind(const char* label, key_binds_t& var)
 
 	if (popup_open)
 	{
-		// 3 bind mods
-		float max_size = calc_max_popup_height(3);
+                // 4 bind mods
+                float max_size = calc_max_popup_height(4);
 
 		auto items_size = ImVec2(63.f, max_size * popup_mod.alpha);
 		SetNextWindowSize(items_size);
@@ -164,12 +164,14 @@ bool c_menu::key_bind(const char* label, key_binds_t& var)
 			return false;
 		}
 
-		if (this->selectable(CXOR("Always"), var.type == 0))
-			var.type = 0;
-		if (this->selectable(CXOR("Hold"), var.type == 1))
-			var.type = 1;
-		if (this->selectable(CXOR("Toggle"), var.type == 2))
-			var.type = 2;
+                if (this->selectable(CXOR("Always"), var.type == 0))
+                        var.type = 0;
+                if (this->selectable(CXOR("Hold"), var.type == 1))
+                        var.type = 1;
+                if (this->selectable(CXOR("Toggle"), var.type == 2))
+                        var.type = 2;
+                if (this->selectable(CXOR("Off hotkey"), var.type == 3))
+                        var.type = 3;
 
 		EndPopup();
 	}
