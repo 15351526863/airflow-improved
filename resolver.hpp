@@ -10,7 +10,7 @@
 #include <random>
 #include <variant>
 #include <memory>
-#include <numeric> 
+#include <numeric>
 
 #if defined(__AVX512F__)
 #include <immintrin.h>
@@ -45,8 +45,15 @@ struct alignas(64) ring_buffer {
         index = (index + 1 == N) ? 0 : index + 1;
     }
 
-    INLINE T& operator[](size_t i) { return data[(index + i) % N]; }
-    INLINE const T& operator[](size_t i) const { return data[(index + i) % N]; }
+    INLINE T& operator[](size_t i) { return data[(index + N - 1 - i) % N]; }
+    INLINE const T& operator[](size_t i) const { return data[(index + N - 1 - i) % N]; }
+
+    INLINE T& get_chronological(size_t i) {
+        return data[(index + N - 1 - i) % N];
+    }
+    INLINE const T& get_chronological(size_t i) const {
+        return data[(index + N - 1 - i) % N];
+    }
 };
 
 struct alignas(64) trig_tables {
@@ -93,9 +100,10 @@ struct full_ukf_t {
     std::array<float, L> weights_mean{};
     std::array<float, L> weights_cov{};
 
-    float alpha{ 1e-3f };
+    float alpha{ 0.1f };
     float beta{ 2.f };
-    float kappa{ 0.f };
+    float kappa{ 3.f - float(N) };
+    float dt{ 1.f / 64.f };
 
     INLINE void init() {
         float lambda = alpha * alpha * (N + kappa) - N;
@@ -105,6 +113,10 @@ struct full_ukf_t {
         for (int i = 1; i < L; ++i) {
             weights_mean[i] = weights_cov[i] = 0.5f / (N + lambda);
         }
+    }
+
+    INLINE void set_dt(float delta_time) {
+        dt = delta_time;
     }
 
     INLINE void generate_sigma_points() {
@@ -127,9 +139,8 @@ struct full_ukf_t {
         generate_sigma_points();
 
         for (auto& sp : sigma_points) {
-            sp[0] = wrap_deg(sp[0] + sp[1] + 0.5f * sp[2]);
-            sp[1] += sp[2];
-            sp[0] = wrap_deg(sp[0]);
+            sp[0] = wrap_deg(sp[0] + dt * sp[1] + 0.5f * dt * dt * sp[2]);
+            sp[1] += dt * sp[2];
 
             float rad = DEG2RAD(sp[0]);
             fast_sincosf(rad, sp[3], sp[4]);
@@ -226,9 +237,13 @@ struct full_ukf_t {
 
         for (int i = 0; i < N; ++i) {
             for (int j = 0; j < N; ++j) {
+                float sum = 0.f;
                 for (int k = 0; k < 2; ++k) {
-                    P[i][j] -= K[i][k] * (C[j][0] * K[i][0] + C[j][1] * K[i][1]);
+                    for (int l = 0; l < 2; ++l) {
+                        sum += K[i][k] * S[k][l] * K[j][l];
+                    }
                 }
+                P[i][j] -= sum;
             }
         }
     }
@@ -272,7 +287,9 @@ private:
 
     static void matrix_inverse_2x2(const std::array<std::array<float, 2>, 2>& A, std::array<std::array<float, 2>, 2>& inv) {
         float det = A[0][0] * A[1][1] - A[0][1] * A[1][0];
-        det = std::max(det, EPSILON);
+        if (std::fabs(det) < EPSILON) {
+            det = (det >= 0.f ? 1.f : -1.f) * EPSILON;
+        }
         float inv_det = 1.f / det;
         inv[0][0] = A[1][1] * inv_det;
         inv[0][1] = -A[0][1] * inv_det;
@@ -295,6 +312,7 @@ struct particle_filter_t {
     std::normal_distribution<float> measurement_noise{ 0.f, 10.f };
 
     INLINE void init(float initial_yaw) {
+        rng.seed(std::random_device{}());
         std::uniform_real_distribution<float> dist(-60.f, 60.f);
         for (auto& p : particles) {
             p.yaw = initial_yaw + dist(rng);
@@ -328,11 +346,13 @@ struct particle_filter_t {
     }
 
     INLINE float estimate() const {
-        float weighted_sum = 0.f;
+        float s = 0.f, c = 0.f;
         for (const auto& p : particles) {
-            weighted_sum += p.yaw * p.weight;
+            float rad = DEG2RAD(p.yaw);
+            s += std::sin(rad) * p.weight;
+            c += std::cos(rad) * p.weight;
         }
-        return wrap_deg(weighted_sum);
+        return RAD2DEG(std::atan2(s, c));
     }
 
 private:
@@ -430,6 +450,10 @@ struct neural_resolver_t {
     }
 
     INLINE void update(const std::array<float, INPUT_SIZE>& input, int true_side, bool hit) {
+        if (true_side == 0) {
+            return;
+        }
+
         float target = hit ? 1.f : 0.f;
         float reward = hit ? 1.f : -0.5f;
 
@@ -690,7 +714,7 @@ struct resolver_info_t {
 
                 for (int i = 0; i < CONTEXT_DIM; ++i) {
                     for (int j = 0; j < CONTEXT_DIM; ++j) {
-                        cov[i][j] -= k[i] * cov_x[j];
+                        cov[i][j] -= k[i] * x[j];
                     }
                 }
             }
@@ -747,7 +771,7 @@ struct resolver_info_t {
             float weight_sum = 0.f;
 
             for (int i = 0; i < 5; ++i) {
-                float w = weights[i] * performance[i];
+                float w = weights[i];
                 sum += confidences[i] * w;
                 weight_sum += w;
             }
@@ -771,54 +795,6 @@ struct resolver_info_t {
         }
     } adaptive_confidence;
 
-    struct desync_optimizer_t {
-        float current_offset{};
-        float best_offset{};
-        float search_min{ -60.f };
-        float search_max{ 60.f };
-        float golden_ratio{ 0.618033988749895f };
-        int iterations{};
-
-        INLINE void reset() {
-            current_offset = 0.f;
-            best_offset = 0.f;
-            iterations = 0;
-        }
-
-        INLINE float next_test_point() {
-            if (iterations < 2) {
-                return iterations == 0 ? search_min + golden_ratio * (search_max - search_min)
-                    : search_min + (1.f - golden_ratio) * (search_max - search_min);
-            }
-
-            float range = search_max - search_min;
-            if (range < 1.f) {
-                return (search_min + search_max) * 0.5f;
-            }
-
-            return current_offset + (range * 0.1f) * (iterations % 2 == 0 ? 1.f : -1.f);
-        }
-
-        INLINE void update_result(float offset, bool hit) {
-            if (hit) {
-                best_offset = offset;
-                search_min = offset - 10.f;
-                search_max = offset + 10.f;
-            }
-            else {
-                if (offset < current_offset) {
-                    search_min = offset;
-                }
-                else {
-                    search_max = offset;
-                }
-            }
-
-            current_offset = offset;
-            iterations++;
-        }
-    } desync_optimizer;
-
     struct skeletal_analyzer_t {
         struct bone_data_t {
             vec3_t head_pos{};
@@ -841,7 +817,7 @@ struct resolver_info_t {
             vec3_t spine_dir = current.chest_pos - current.pelvis_pos;
             float spine_len = spine_dir.length();
             if (spine_len > EPSILON) {
-                spine_dir = spine_dir / spine_len;  // Manual normalization
+                spine_dir = spine_dir / spine_len;
                 current.spine_angle = RAD2DEG(std::atan2f(spine_dir.y, spine_dir.x));
 
                 vec3_t vertical(0.f, 0.f, 1.f);
@@ -938,7 +914,6 @@ struct resolver_info_t {
         bandit.init();
 
         adaptive_confidence = {};
-        desync_optimizer.reset();
         skeletal_analyzer = {};
         latency_compensator = {};
 
