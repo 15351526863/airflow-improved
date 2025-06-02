@@ -7,6 +7,7 @@
 #include "penetration.hpp"
 #include "esp.hpp"
 #include "resolver.hpp"
+#include "ragebot.hpp"
 #include "legacy ui/menu/menu.h"
 
 constexpr auto MOLOTOV_ICON = (u8"\uE02E");
@@ -587,9 +588,24 @@ void c_esp::draw_player_esp()
 			return;
 		}
 
-		esp.valid = true;
+                esp.valid = true;
 
-		auto& bbox = esp.box;
+                auto& bbox = esp.box;
+
+                if (entity_visuals.elements & 512)
+                {
+                        auto& vis_point = *RAGEBOT->get_aim_point(index);
+                        if (vis_point.valid)
+                        {
+                                vec2_t screen{};
+                                if (RENDER->world_to_screen(vis_point.point, screen))
+                                {
+                                        auto clr = entity_visuals.colors.glow.base();
+                                        RENDER->circle_filled(screen.x, screen.y, 4.f, clr.new_alpha((int)(120 * esp.alpha)), 20);
+                                        RENDER->circle(screen.x, screen.y, 4.f, clr.new_alpha((int)(clr.a() * esp.alpha)), 20, 2.f);
+                                }
+                        }
+                }
 		if (entity_visuals.elements & 1)
 		{
 			RENDER->rect(bbox.x - 1, bbox.y - 1, bbox.w + 2, bbox.h + 2, { 0, 0, 0, (int)(150 * esp.alpha) }, 1.f);
@@ -672,11 +688,11 @@ void c_esp::draw_player_esp()
 					}
 
 #if _DEBUG || ALPHA || BETA
-					if (entity_visuals.elements & 512)
-					{
-						auto& info = resolver_info[player->index()];
-						EMPLACE_OBJECT(true, FONT_OUTLINE | FONT_LIGHT_BACK, FONT_PIXEL, ESP_POS_RIGHT, 0.f, 0.f, esp.alpha, { 255, 255, 255, 255 }, { 0, 0, 0, 255 }, info.mode);
-					}
+                                        if (entity_visuals.elements & 1024)
+                                        {
+                                                auto& info = resolver_info[player->index()];
+                                                EMPLACE_OBJECT(true, FONT_OUTLINE | FONT_LIGHT_BACK, FONT_PIXEL, ESP_POS_RIGHT, 0.f, 0.f, esp.alpha, { 255, 255, 255, 255 }, { 0, 0, 0, 255 }, info.mode);
+                                        }
 #endif
 				}
 			}

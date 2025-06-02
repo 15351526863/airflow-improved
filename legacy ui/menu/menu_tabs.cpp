@@ -1005,9 +1005,10 @@ void c_menu::draw_ui_items()
 							  XOR("Ammo"),
 							  XOR("Flags"),
 							  XOR("OOF Arrow"),
-							  XOR("Glow"),
+                                                          XOR("Glow"),
+                                                          XOR("Aim point"),
 #if _DEBUG || ALPHA || BETA
-							  XOR("Resolver mode"),
+                                                          XOR("Resolver mode"),
 #endif
 							//  XOR("Skeleton"),
 							});

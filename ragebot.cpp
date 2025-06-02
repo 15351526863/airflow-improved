@@ -1183,14 +1183,20 @@ void c_ragebot::choose_best_point()
 					return best;
 				};
 
-			auto best_point = get_best_aim_point();
-			if (best_point.found)
-			{
-				rage->best_point = best_point;
-				rage->best_record = rage->hitscan_record;
-				rage->best_point.found = true;
-			}
-		});
+                        auto best_point = get_best_aim_point();
+                        if (best_point.found)
+                        {
+                                rage->best_point = best_point;
+                                rage->best_record = rage->hitscan_record;
+                                rage->best_point.found = true;
+
+                                aim_points[player->index()].valid = true;
+                                aim_points[player->index()].hitbox = best_point.hitbox;
+                                aim_points[player->index()].point = best_point.aim_point;
+                        }
+                        else
+                                aim_points[player->index()].valid = false;
+                });
 }
 
 void c_ragebot::auto_revolver()
@@ -1418,11 +1424,14 @@ void c_ragebot::run()
 	if (EXPLOITS->cl_move.trigger && EXPLOITS->cl_move.shifting)
 		return;
 
-	hitboxes.clear();
-	hitboxes.reserve(HITBOX_MAX);
+        hitboxes.clear();
+        hitboxes.reserve(HITBOX_MAX);
 
-	rage_config = main_utils::get_weapon_config();
-	update_hitboxes();
+        rage_config = main_utils::get_weapon_config();
+        update_hitboxes();
+
+        for (auto& pt : aim_points)
+                pt.valid = false;
 
 	trigger_stop = false;
 	should_shot = true;
