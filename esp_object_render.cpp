@@ -19,7 +19,14 @@ namespace esp_objects
 		auto font_ptr = font->get();
 
 		auto list = RENDER->get_draw_list();
-		ImVec2 text_size = RENDER->get_text_size(font, object.string.c_str());
+                std::wstring wstr(object.string.begin(), object.string.end());
+                ImVec2 text_size = RENDER->get_text_size(font, object.string.c_str());
+                if (object.position == ESP_POS_UP)
+                {
+                        auto sz = RENDER->surface_text_size(RENDER->fonts.surface_esp, wstr);
+                        text_size.x = sz.x;
+                        text_size.y = sz.y;
+                }
 
 		auto add = ((BAR_WIDTH_X * 2.f)) * max_bar_width;
 		auto add_h = ((BAR_WIDTH_Y * 2.f)) * max_bar_width;
@@ -53,10 +60,19 @@ namespace esp_objects
 		break;
 		}
 
-		auto centered = object.position == ESP_POS_UP || object.position == ESP_POS_DOWN;
-		auto flags = (centered ? FONT_CENTERED_X : 0) | object.font_flags;
-		RENDER->text(position.x, position.y, object.clr.new_alpha((int)(object.clr.a() * object.alpha)),
-			flags, font, object.string);
+                auto centered = object.position == ESP_POS_UP || object.position == ESP_POS_DOWN;
+                auto flags = (centered ? FONT_CENTERED_X : 0) | object.font_flags;
+                if (object.position == ESP_POS_UP)
+                {
+                        RENDER->surface_text(position.x - (text_size.x * 0.5f), position.y,
+                                object.clr.new_alpha((int)(object.clr.a() * object.alpha)),
+                                RENDER->fonts.surface_esp, wstr);
+                }
+                else
+                {
+                        RENDER->text(position.x, position.y, object.clr.new_alpha((int)(object.clr.a() * object.alpha)),
+                                flags, font, object.string);
+                }
 
 		offset += text_size.y;
 	}

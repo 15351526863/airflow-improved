@@ -375,7 +375,11 @@ bool c_render::init()
 	//	cfg.RasterizerFlags = ImGuiFreeType::RasterizerFlags::ForceAutoHint;
 	fonts.main.init(io, SFUIDisplay_SemiBold, sizeof(SFUIDisplay_SemiBold), 14.f, &cfg, io.Fonts->GetGlyphRangesCyrillic());
 	fonts.large.init(io, SFUIDisplay_SemiBold, sizeof(SFUIDisplay_SemiBold), 30.f, &cfg, io.Fonts->GetGlyphRangesCyrillic());
-	fonts.esp.init(io, CXOR("C:\\Windows\\Fonts\\verdana.ttf"), 12.f, &cfg, io.Fonts->GetGlyphRangesCyrillic());
+        // use a font that contains common simplified Chinese characters to fix
+        // "???" being rendered for UTF-8 text like Chinese in ESP
+        fonts.esp.init(io, CXOR("C:\\Windows\\Fonts\\msyh.ttc"), 12.f, &cfg, io.Fonts->GetGlyphRangesChineseSimplifiedCommon());
+        fonts.surface_esp = HACKS->surface->font_create();
+        HACKS->surface->set_font_glyph_set(fonts.surface_esp, "msyh.ttc", 12, 0, 0, 0, 0);
 	fonts.misc.init(io, SFUIDisplay_SemiBold, sizeof(SFUIDisplay_SemiBold), 14.f, &cfg, io.Fonts->GetGlyphRangesCyrillic());
 	fonts.bold.init(io, SFUIDisplay_Bold, sizeof(SFUIDisplay_Bold), 10.f, &cfg, io.Fonts->GetGlyphRangesCyrillic());
 	fonts.bold2.init(io, SFUIDisplay_Bold, sizeof(SFUIDisplay_Bold), 14.f, &cfg, io.Fonts->GetGlyphRangesCyrillic());
