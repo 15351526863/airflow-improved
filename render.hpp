@@ -72,6 +72,7 @@ private:
         c_d3dfont pixel{};
         c_d3dfont weapon_icons{};
         c_d3dfont weapon_icons_large{};
+        unsigned long surface_esp{};
     };
 
     float last_time_updated;
@@ -226,6 +227,21 @@ public:
         draw_list->AddText(font_base, font_size, pos, color.as_imcolor(), str);
 
         draw_list->PopTextureID();
+    }
+
+    INLINE vec2_t surface_text_size(unsigned long font, const std::wstring& wstr)
+    {
+        int w{}, h{};
+        HACKS->surface->get_text_size(font, wstr.c_str(), w, h);
+        return vec2_t((float)w, (float)h);
+    }
+
+    INLINE void surface_text(float x, float y, c_color color, unsigned long font, const std::wstring& wstr)
+    {
+        HACKS->surface->draw_set_text_font(font);
+        HACKS->surface->draw_set_text_color(color.r(), color.g(), color.b(), color.a());
+        HACKS->surface->draw_set_text_pos((int)x, (int)y);
+        HACKS->surface->draw_print_text(wstr.c_str(), wstr.size());
     }
 
     INLINE void blur(float x, float y, float w, float h, c_color clr, float rounding = 0.f)
