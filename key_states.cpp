@@ -98,21 +98,24 @@ void c_key_states::update(UINT uMsg, WPARAM wParam)
 	{
 		auto& b = g_cfg.binds[i];
 
-		if (b.key == -1 && b.type != 0)
-		{
-			b.toggled = false;
-			continue;
-		}
+                if (b.key == -1 && (b.type == 1 || b.type == 2))
+                {
+                        b.toggled = false;
+                        continue;
+                }
 
-		switch (b.type)
-		{
-		case 0:
-			b.toggled = true;
-			break;
-		case 1:
-			b.toggled = this->at(b.key);
-			break;
-		}
+                switch (b.type)
+                {
+                case 0:
+                        b.toggled = true;
+                        break;
+                case 1:
+                        b.toggled = this->at(b.key);
+                        break;
+                case 3:
+                        b.toggled = !this->at(b.key);
+                        break;
+                }
 
 		if (b.type == 2)
 		{
