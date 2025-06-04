@@ -637,8 +637,10 @@ namespace hooks::vmt
 
 					EXPLOITS->run();
 
-					ANTI_AIM->run();
-					FAKE_LAG->update_shot_cmd();
+                                        ANTI_AIM->run();
+                                        if (ANTI_AIM->flick_now)
+                                                *HACKS->send_packet = true;
+                                        FAKE_LAG->update_shot_cmd();
 				}
 				ENGINE_PREDICTION->end();
 				ANTI_AIM->cleanup();

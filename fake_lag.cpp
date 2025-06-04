@@ -173,7 +173,20 @@ void c_fake_lag::run()
 		return;
 	}
 
-	*HACKS->send_packet = HACKS->client_state->choked_commands >= choke_amount;
+        *HACKS->send_packet = HACKS->client_state->choked_commands >= choke_amount;
+
+        if (ANTI_AIM->flick_now)
+                ANTI_AIM->flick_now = false;
+
+        if (g_cfg.antihit.flick_head && !ANTI_AIM->is_fake_ducking())
+        {
+                if (++ANTI_AIM->flick_timer > g_cfg.antihit.flick_speed)
+                {
+                        ANTI_AIM->flick_now = true;
+                        *HACKS->send_packet = true;
+                        ANTI_AIM->flick_timer = 0;
+                }
+        }
 }
 
 void c_ping_spike::on_procces_packet()

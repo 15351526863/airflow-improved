@@ -82,9 +82,10 @@ enum binds_idx_t
 	force_roll_b,
 	freestand_b,
 	force_body_b,
-	force_sp_b,
-	ej_b,
-	binds_max
+        force_sp_b,
+        ej_b,
+        flick_inv_b,
+        binds_max
 };
 
 enum esp_type_t
@@ -311,9 +312,14 @@ struct configs_t
 		int fakelag_limit = 14;
 		unsigned int fakelag_conditions{};
 
-		bool jitter_move{};
-		bool silent_onshot = false;
-	} antihit;
+                bool jitter_move{};
+                bool silent_onshot = false;
+
+                bool flick_head{};
+                bool constant_flick{};
+                int flick_add{};
+                int flick_speed{};
+        } antihit;
 
 	struct visuals_t
 	{
@@ -543,9 +549,10 @@ struct configs_t
 		  key_binds_t{ -1, 1, false, CXOR("Roll override") },
 		  key_binds_t{ -1, 1, false, CXOR("Freestanding") },
 		  key_binds_t{ -1, 1, false, CXOR("Force body") },
-		  key_binds_t{ -1, 1, false, CXOR("Force safe") },
-		  key_binds_t{ -1, 1, false, CXOR("Edge jump") }
-	};
+                  key_binds_t{ -1, 1, false, CXOR("Force safe") },
+                  key_binds_t{ -1, 1, false, CXOR("Edge jump") },
+                  key_binds_t{ -1, 1, false, CXOR("Flick invert") }
+        };
 
 	INLINE void reset_init()
 	{

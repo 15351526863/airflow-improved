@@ -35,7 +35,14 @@ private:
         bool flip_move{};
         bool anti_backstab{};
 
-	int fake_side{};
+public:
+        bool flick_now{};
+        bool invert_flick{};
+        int flick_timer{};
+
+private:
+        
+        int fake_side{};
 	int shot_cmd{};
 	float fake_angle{};
 	float start_yaw{};
@@ -70,6 +77,10 @@ public:
                 flip_jitter = false;
                 flip_move = false;
                 anti_backstab = false;
+
+                flick_now = false;
+                invert_flick = false;
+                flick_timer = 0;
 
 		fake_side = 0;
 		shot_cmd = 0;
