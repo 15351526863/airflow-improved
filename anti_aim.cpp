@@ -1009,13 +1009,23 @@ void c_anti_aim::run()
 	if (!(g_cfg.binds[left_b].toggled || g_cfg.binds[right_b].toggled || g_cfg.binds[back_b].toggled))
 		best_yaw += g_cfg.antihit.yaw_add;
 
-	if (g_cfg.antihit.def_yaw && defensive_aa)
-	{
-		math::random_seed(HACKS->global_vars->tickcount);
-		best_yaw += HACKS->global_vars->tickcount % 16 * (360 / 16) - 180;
-	}
+        if (g_cfg.antihit.def_yaw && defensive_aa)
+        {
+                math::random_seed(HACKS->global_vars->tickcount);
+                best_yaw += HACKS->global_vars->tickcount % 16 * (360 / 16) - 180;
+        }
 
-	HACKS->cmd->viewangles.y = math::normalize_yaw(best_yaw);
+        if (flick_now)
+        {
+                if (g_cfg.antihit.constant_flick)
+                        invert_flick = !invert_flick;
+                else
+                        invert_flick = g_cfg.binds[flick_inv_b].toggled;
+
+                best_yaw += invert_flick ? -g_cfg.antihit.flick_add : g_cfg.antihit.flick_add;
+        }
+
+        HACKS->cmd->viewangles.y = math::normalize_yaw(best_yaw);
 #endif
 }
 
