@@ -12,14 +12,7 @@
 #include "penetration.hpp"
 #include "resolver.hpp"
 #include "ragebot.hpp"
-
 #include "poly.hpp"
-
-/*
-#ifndef _DEBUG
-#include <VirtualizerSDK.h>
-#endif
-*/
 
 void draw_hitbox__(c_cs_player* player, matrix3x4_t* bones, int idx, int idx2, bool dur = false)
 {
@@ -93,7 +86,52 @@ bool can_hit_hitbox(const vec3_t& start, const vec3_t& end, rage_player_t* rage,
 	return false;
 }
 
-bool c_ragebot::can_fire()
+float get_point_accuracy(rage_player_t* rage, vec3_t& eye_pos, const rage_point_t& point, matrix3x4_t* matrix, anim_record_t* record)
+{
+	static auto weapon_accuracy_nospread = HACKS->convars.weapon_accuracy_nospread;
+	if (weapon_accuracy_nospread && weapon_accuracy_nospread->get_bool())
+		return 1.f;
+
+	auto predicted_info = ENGINE_PREDICTION->get_networked_vars(HACKS->cmd->command_number);
+
+	auto hits = 0;
+
+	auto spread = predicted_info->spread + predicted_info->inaccuracy;
+	auto angle = math::calc_angle(eye_pos, point.aim_point).normalized_angle();
+
+	vec3_t forward, right, up;
+	math::angle_vectors(angle, &forward, &right, &up);
+
+	for (auto i = 1; i <= 6; ++i)
+	{
+		for (auto j = 0; j < 8; ++j)
+		{
+			auto current_spread = spread * ((float)i / 6.f);
+
+			float value = (float)j / 8.0f * (M_PI * 2.f);
+
+			auto direction_cos = std::cos(value);
+			auto direction_sin = std::sin(value);
+
+			auto spread_x = direction_sin * current_spread;
+			auto spread_y = direction_cos * current_spread;
+
+			vec3_t direction{};
+			direction.x = forward.x + spread_x * right.x + spread_y * up.x;
+			direction.y = forward.y + spread_x * right.y + spread_y * up.y;
+			direction.z = forward.z + spread_x * right.z + spread_y * up.z;
+
+			auto end = eye_pos + direction * HACKS->weapon_info->range;
+
+			if (can_hit_hitbox(eye_pos, end, rage, point.hitbox, matrix, record))
+				hits++;
+		}
+	}
+
+	return (float)hits / 48.f;
+}
+
+bool c_ragebot::can_fire(bool ignore_revolver)
 {
 	if (!HACKS->local || !HACKS->weapon)
 		return false;
@@ -123,16 +161,9 @@ bool c_ragebot::can_fire()
 	if ((weapon_index == WEAPON_GLOCK || weapon_index == WEAPON_FAMAS) && HACKS->weapon->burst_shots_remaining() > 0)
 		return HACKS->predicted_time >= HACKS->weapon->next_burst_shot();
 
-	if (weapon_index == WEAPON_REVOLVER)
-	{
-		bool ready =
-			HACKS->predicted_time >= HACKS->weapon->next_primary_attack() &&
-			HACKS->predicted_time >= HACKS->local->next_attack() &&
-			HACKS->predicted_time > HACKS->weapon->postpone_fire_ready_time() &&
-			HACKS->weapon->activity() == 208;
-
-		return ready;
-	}
+	// TO-DO: auto revolver detection
+	if (weapon_index == WEAPON_REVOLVER && !ignore_revolver)
+		return revolver_fire;
 
 	float next_attack = HACKS->local->next_attack();
 	float next_primary_attack = HACKS->weapon->next_primary_attack();
@@ -160,6 +191,8 @@ bool c_ragebot::is_shooting()
 		return !HACKS->weapon->pin_pulled() && HACKS->weapon->throw_time() > 0.f && HACKS->weapon->throw_time() < HACKS->predicted_time;
 
 	auto can_fire_now = can_fire();
+	if (weapon_index == WEAPON_REVOLVER)
+		return attack && can_fire_now;
 
 	if (HACKS->weapon->is_knife())
 		return (attack || attack2) && can_fire_now;
@@ -631,46 +664,68 @@ std::vector<rage_point_t> get_hitbox_points(int damage, std::vector<int>& hitbox
 
 void player_move(c_cs_player* player, anim_record_t* record)
 {
-	vec3_t start = record->prediction.origin;
-	vec3_t end = start + record->prediction.velocity * HACKS->global_vars->interval_per_tick;
+	/* Powered by Ambr0se */
+	vec3_t move_origin = record->prediction.origin;
+	vec3_t move_velocity = record->prediction.velocity;
+
+	float time_left = HACKS->global_vars->interval_per_tick;
 
 	c_game_trace trace;
 	c_trace_filter_world_only filter;
 
-	HACKS->engine_trace->trace_ray(ray_t(start, end, record->mins, record->maxs), MASK_PLAYERSOLID, &filter, &trace);
-
-	if (trace.fraction != 1.f)
+	int max_bumps = 4;
+	while (max_bumps)
 	{
-		for (int i = 0; i < 2; ++i)
-		{
-			if (record->prediction.velocity.length() == 0.f)
-				break;
+		// --- 排除微小速度
+		if (max_bumps < 0 || time_left <= 0.f || move_velocity.length_sqr() < 0.01f)
+			break;
 
-			record->prediction.velocity -= trace.plane.normal * record->prediction.velocity.dot(trace.plane.normal);
+		// --- 动态调整最大迭代次数
+		max_bumps -= (time_left > 0.8f * HACKS->global_vars->interval_per_tick) ? 1 : 2;
 
-			float adjust = record->prediction.velocity.dot(trace.plane.normal);
-			if (adjust < 0.f)
-				record->prediction.velocity -= trace.plane.normal * adjust;
+		vec3_t end = move_origin + move_velocity * time_left;
+		HACKS->engine_trace->trace_ray(ray_t(move_origin, end, record->mins, record->maxs), MASK_PLAYERSOLID, &filter, &trace);
 
-			start = trace.end;
-			end = start + record->prediction.velocity * (HACKS->global_vars->interval_per_tick * (1.f - trace.fraction));
+		if (trace.fraction > 0.f)
+			move_origin += move_velocity * time_left * trace.fraction;
 
-			HACKS->engine_trace->trace_ray(ray_t(start, end, record->mins, record->maxs), MASK_PLAYERSOLID, &filter, &trace);
+		if (trace.fraction == 1.f)
+			break;
 
-			if (trace.fraction == 1.f)
-				break;
-		}
+		float dot = move_velocity.dot(trace.plane.normal);
+		// TODO: --- 速度衰减系数（*实际是m_surfaceFriction*）
+		vec3_t clipped_velocity = move_velocity - trace.plane.normal * dot * (2.f * 0.85f);
+
+		move_velocity = clipped_velocity;
+
+		time_left *= (1.f - trace.fraction);
 	}
 
-	start = end = record->prediction.origin = trace.end;
+	record->prediction.origin = move_origin;
+	record->prediction.velocity = move_velocity;
+
+	vec3_t start = move_origin;
+	vec3_t end = start;
 	end.z -= 2.f;
 
 	HACKS->engine_trace->trace_ray(ray_t(start, end, record->mins, record->maxs), MASK_PLAYERSOLID, &filter, &trace);
 
-	if (trace.fraction == 1.f && trace.plane.normal.z < 0.7f)
-		record->prediction.flags.remove(FL_ONGROUND);
-	else
+	// --- 动态地面检测（垂直速度）
+	float dynamic_threshold = (record->prediction.velocity.z > 0.f) ? 0.6f : 0.7f;
+	if (trace.fraction < 1.f && trace.plane.normal.z > dynamic_threshold)
+	{
 		record->prediction.flags.force(FL_ONGROUND);
+
+		// --- 斜坡滑动检测
+		if (trace.plane.normal.z < 0.2f && move_velocity.length_sqr() > 100.f)
+		{
+			// TODO: --- 重力（实际是*sv_gravity*）
+			move_velocity.z -= HACKS->global_vars->interval_per_tick * 800.f;
+		}
+	}
+	else {
+		record->prediction.flags.remove(FL_ONGROUND);
+	}
 
 	if (record->prediction.flags.has(FL_ONGROUND))
 	{
@@ -969,7 +1024,6 @@ bool hitchance(vec3_t eye_pos, rage_player_t& rage, const rage_point_t& point, a
 	return probability >= chance;
 }
 
-
 void collect_damage_from_multipoints(int damage, vec3_t& predicted_eye_pos, rage_player_t* rage, rage_point_t& points, anim_record_t* record, matrix3x4_t* matrix_to_aim, bool predicted)
 {
 	auto multipoints = RAGEBOT->get_points(rage->player, points.hitbox, matrix_to_aim);
@@ -1183,56 +1237,90 @@ void c_ragebot::choose_best_point()
 					return best;
 				};
 
-                        auto best_point = get_best_aim_point();
-                        if (best_point.found)
-                        {
-                                rage->best_point = best_point;
-                                rage->best_record = rage->hitscan_record;
-                                rage->best_point.found = true;
-
-                                aim_points[player->index()].valid = true;
-                                aim_points[player->index()].hitbox = best_point.hitbox;
-                                aim_points[player->index()].point = best_point.aim_point;
-                        }
-                        else
-                                aim_points[player->index()].valid = false;
-                });
+			auto best_point = get_best_aim_point();
+			if (best_point.found)
+			{
+				rage->best_point = best_point;
+				rage->best_record = rage->hitscan_record;
+				rage->best_point.found = true;
+			}
+		});
 }
 
 void c_ragebot::auto_revolver()
 {
-	/*
-	 * [https://yougame.biz/threads/336487/]
-	 */
-
 	if (!HACKS->local || !HACKS->weapon || !HACKS->weapon_info)
 		return;
 
-	if (HACKS->weapon->item_definition_index() != WEAPON_REVOLVER)
-		return;
+	auto next_secondary_attack = HACKS->weapon->next_secondary_attack();
 
-	if (HACKS->weapon->clip1() > 0)
+	if (!g_cfg.rage.enable || EXPLOITS->recharge.start && !EXPLOITS->recharge.finish || HACKS->weapon->item_definition_index() != WEAPON_REVOLVER || HACKS->weapon->clip1() <= 0)
 	{
-		float fire_time = TICKS_TO_TIME(HACKS->local->tickbase() + 1);
+		last_checked = 0;
+		tick_cocked = 0;
+		tick_strip = 0;
+		next_secondary_attack = 0.f;
 
-		if (fire_time >= HACKS->local->next_attack())
-		{
-			if (fire_time >= HACKS->weapon->next_primary_attack() &&
-				HACKS->weapon->activity() == 208 &&
-				fire_time > HACKS->weapon->postpone_fire_ready_time())
-			{
-				if (HACKS->weapon->next_secondary_attack() <= fire_time)
-					;
-				else
-					HACKS->cmd->buttons.force(IN_ATTACK2);
-			}
-			else
-				HACKS->cmd->buttons.force(IN_ATTACK);
-		}
+		revolver_fire = false;
+		return;
 	}
 
-	if (!HACKS->weapon->clip1() && HACKS->weapon->primary_reserve_ammo_count() > 0)
-		HACKS->cmd->buttons.remove(IN_RELOAD | IN_ATTACK);
+	auto time = TICKS_TO_TIME(HACKS->tickbase - EXPLOITS->tickbase_offset());
+	const auto max_ticks = TIME_TO_TICKS(.25f) - 1;
+	const auto tick_base = TIME_TO_TICKS(time);
+
+	if (HACKS->local->next_attack() > time)
+		return;
+
+	if (HACKS->local->spawn_time() != last_spawn_time)
+	{
+		tick_cocked = tick_base;
+		tick_strip = tick_base - max_ticks - 1;
+		last_spawn_time = HACKS->local->spawn_time();
+	}
+
+	if (HACKS->weapon->next_primary_attack() > time)
+	{
+		HACKS->cmd->buttons.remove(IN_ATTACK);
+		revolver_fire = false;
+		return;
+	}
+
+	if (last_checked == tick_base)
+		return;
+
+	last_checked = tick_base;
+	revolver_fire = false;
+
+	if (tick_base - tick_strip > 2 && tick_base - tick_strip < 14)
+		revolver_fire = true;
+
+
+	if (HACKS->cmd->buttons.has(IN_ATTACK) && revolver_fire)
+		return;
+
+	HACKS->cmd->buttons.force(IN_ATTACK);
+
+	if (next_secondary_attack >= time)
+		HACKS->cmd->buttons.force(IN_ATTACK2);
+
+	if (tick_base - tick_cocked > max_ticks * 2 + 1)
+	{
+		tick_cocked = tick_base;
+		tick_strip = tick_base - max_ticks - 1;
+	}
+
+	const auto cock_limit = tick_base - tick_cocked >= max_ticks;
+	const auto after_strip = tick_base - tick_strip <= max_ticks;
+
+	if (cock_limit || after_strip)
+	{
+		tick_cocked = tick_base;
+		HACKS->cmd->buttons.remove(IN_ATTACK);
+
+		if (cock_limit)
+			tick_strip = tick_base;
+	}
 }
 
 bool c_ragebot::knife_is_behind(c_cs_player* player, anim_record_t* record)
@@ -1424,14 +1512,11 @@ void c_ragebot::run()
 	if (EXPLOITS->cl_move.trigger && EXPLOITS->cl_move.shifting)
 		return;
 
-        hitboxes.clear();
-        hitboxes.reserve(HITBOX_MAX);
+	hitboxes.clear();
+	hitboxes.reserve(HITBOX_MAX);
 
-        rage_config = main_utils::get_weapon_config();
-        update_hitboxes();
-
-        for (auto& pt : aim_points)
-                pt.valid = false;
+	rage_config = main_utils::get_weapon_config();
+	update_hitboxes();
 
 	trigger_stop = false;
 	should_shot = true;
@@ -1689,21 +1774,12 @@ void c_ragebot::player_hurt(c_game_event* event)
 	if (HACKS->engine->get_player_for_user_id(event->get_int(CXOR("attacker"))) != HACKS->engine->get_local_player())
 		return;
 
-	if (shots.empty())
-		return;
-
-	const int hurt_index = HACKS->engine->get_player_for_user_id(event->get_int(CXOR("userid")));
-
-	for (auto it = shots.begin(); it != shots.end(); ++it)
+	if (!shots.empty())
 	{
-		if (it->index == hurt_index)
-		{
-			shots.erase(it);
-			break;
-		}
+		auto& shot = shots.front();
+		shots.erase(shots.begin());
 	}
 }
-
 
 void c_ragebot::round_start(c_game_event* event)
 {
