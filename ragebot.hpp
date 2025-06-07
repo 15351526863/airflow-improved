@@ -130,10 +130,46 @@ struct rage_player_t
 
 struct knife_point_t
 {
-	int damage{};
-	vec3_t point{};
-	anim_record_t* record{};
+        int damage{};
+        vec3_t point{};
+        anim_record_t* record{};
 };
+
+struct PlayerState_t
+{
+        int m_iSomeFlag{};
+};
+
+struct AimContext_t
+{
+        int m_iCurrentBestHitbox{};
+        c_cs_player* m_pCurrentBestTarget{};
+        int m_iTargetPlayerIndex{};
+        int m_iLastBestHitbox{};
+        bool m_bHasValidTarget{};
+        float m_flSomeTimestamp{};
+        int m_iSomeTargetID1{};
+        bool m_bIgnoreBounds{};
+        int m_iLastScannedHitbox{};
+        vec3_t m_vecLastScannedPoint{};
+        bool m_bAimbotHasTarget{};
+        c_cs_player* m_pFinalTarget{};
+        int m_iFinalHitbox{};
+        float m_flFinalDamage{};
+        vec3_t m_vecFinalPoint{};
+
+        INLINE bool IsPointWithinBounds(const vec3_t&) const { return true; }
+        INLINE bool IsPointWithinSecondaryBounds(const vec3_t&) const { return true; }
+        INLINE void SetPointAsInvalid(int) {}
+        INLINE void ClearFailureFlags() {}
+        INLINE void UpdateTargetPoint(const vec3_t&) {}
+        INLINE bool ShouldOverrideTarget(c_cs_player*) const { return true; }
+};
+
+PlayerState_t* GetPlayerState(c_cs_player* player);
+bool Ragebot_RegisterAimPoint(AimContext_t* pAimContext, const vec3_t& vecPoint,
+        c_cs_player* pTargetEntity, int iHitbox);
+
 
 class c_ragebot
 {
@@ -335,7 +371,6 @@ public:
 		}
 	}
 
-	multipoints_t get_points(c_cs_player* player, int hitbox, matrix3x4_t* matrix);
 	bool can_fire();
 	bool is_shooting();
 	void run_stop();
