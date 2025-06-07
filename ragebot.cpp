@@ -64,7 +64,8 @@ bool c_ragebot::CheckHitchance(const vec3_t& shootPosition, c_cs_player* pTarget
         float weaponSpread = pWeapon->get_spread();
         float weaponInaccuracy = pWeapon->get_inaccuracy();
 
-        math::random_seed((HACKS->global_vars->tickcount + pTarget->ping()) % 256);
+        int seed = HACKS->global_vars->tickcount + static_cast<int>(HACKS->ping * 1000.f);
+        math::random_seed(seed % 256);
 
         vec3_t forward, right, up;
         math::angle_vectors(aimAngle, &forward, &right, &up);
@@ -86,12 +87,12 @@ bool c_ragebot::CheckHitchance(const vec3_t& shootPosition, c_cs_player* pTarget
                                0.f };
 
                 vec3_t spreadDir = forward + right * spread.x + up * spread.y;
-                spreadDir.normalize();
+                spreadDir = spreadDir.normalized();
 
                 vec3_t end = shootPosition + spreadDir * HACKS->weapon_info->range;
 
                 c_game_trace tr{};
-                HACKS->engine_trace->trace_ray(ray_t(shootPosition, end), MASK_SHOT_HULL | CONTENTS_HITBOX, &filter, &tr);
+                HACKS->engine_trace->trace_ray(ray_t(shootPosition, end), MASK_SHOT_HULL | CONTENTS_HITBOX, (i_trace_filter*)&filter, &tr);
 
                 if (tr.entity == pTarget)
                         hits++;
@@ -1006,21 +1007,6 @@ void get_result(bool& out, const vec3_t& start, const vec3_t& end, rage_player_t
 	out = can_hit_hitbox(start, end, rage, hitbox, matrix, record);
 }
 
-bool hitchance(vec3_t eye_pos, rage_player_t& rage, const rage_point_t& point, anim_record_t* record, const float& chance, matrix3x4_t* matrix, float* hitchance_out = nullptr)
-{
-        auto weapon = HACKS->weapon;
-        if (!weapon)
-                return false;
-
-        vec3_t angle = math::calc_angle(eye_pos, point.aim_point).normalized_angle();
-
-        bool result = CheckHitchance(eye_pos, rage.player, weapon, angle, chance * 100.f);
-
-        if (hitchance_out)
-                *hitchance_out = result ? 1.f : 0.f;
-
-        return result;
-}
 
 void collect_damage_from_multipoints(int damage, vec3_t& predicted_eye_pos, rage_player_t* rage, rage_point_t& points, anim_record_t* record, matrix3x4_t* matrix_to_aim, bool predicted)
 {
