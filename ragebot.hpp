@@ -130,46 +130,10 @@ struct rage_player_t
 
 struct knife_point_t
 {
-        int damage{};
-        vec3_t point{};
-        anim_record_t* record{};
+	int damage{};
+	vec3_t point{};
+	anim_record_t* record{};
 };
-
-struct PlayerState_t
-{
-        int m_iSomeFlag{};
-};
-
-struct AimContext_t
-{
-        int m_iCurrentBestHitbox{};
-        c_cs_player* m_pCurrentBestTarget{};
-        int m_iTargetPlayerIndex{};
-        int m_iLastBestHitbox{};
-        bool m_bHasValidTarget{};
-        float m_flSomeTimestamp{};
-        int m_iSomeTargetID1{};
-        bool m_bIgnoreBounds{};
-        int m_iLastScannedHitbox{};
-        vec3_t m_vecLastScannedPoint{};
-        bool m_bAimbotHasTarget{};
-        c_cs_player* m_pFinalTarget{};
-        int m_iFinalHitbox{};
-        float m_flFinalDamage{};
-        vec3_t m_vecFinalPoint{};
-
-        INLINE bool IsPointWithinBounds(const vec3_t&) const { return true; }
-        INLINE bool IsPointWithinSecondaryBounds(const vec3_t&) const { return true; }
-        INLINE void SetPointAsInvalid(int) {}
-        INLINE void ClearFailureFlags() {}
-        INLINE void UpdateTargetPoint(const vec3_t&) {}
-        INLINE bool ShouldOverrideTarget(c_cs_player*) const { return true; }
-};
-
-PlayerState_t* GetPlayerState(c_cs_player* player);
-bool Ragebot_RegisterAimPoint(AimContext_t* pAimContext, const vec3_t& vecPoint,
-        c_cs_player* pTargetEntity, int iHitbox);
-
 
 class c_ragebot
 {
@@ -185,34 +149,34 @@ private:
 
 	std::vector<int> hitboxes{};
 
-        vec3_t predicted_eye_pos{};
-        rage_player_t rage_players[65]{};
+	vec3_t predicted_eye_pos{};
+	rage_player_t rage_players[65]{};
 
-        struct aim_point_visual_t
-        {
-                bool valid{};
-                int hitbox{};
-                vec3_t point{};
+	struct aim_point_visual_t
+	{
+		bool valid{};
+		int hitbox{};
+		vec3_t point{};
 
-                INLINE void reset()
-                {
-                        valid = false;
-                        hitbox = 0;
-                        point.reset();
-                }
-        };
+		INLINE void reset()
+		{
+			valid = false;
+			hitbox = 0;
+			point.reset();
+		}
+	};
 
-        aim_point_visual_t aim_points[65]{};
+	aim_point_visual_t aim_points[65]{};
 
-        std::vector<aim_shot_record_t> shots{};
+	std::vector<aim_shot_record_t> shots{};
 
-        struct lag_record_t
-        {
-                c_cs_player* player{};
-        };
+	struct lag_record_t
+	{
+		c_cs_player* player{};
+	};
 
-        std::vector<c_cs_player*> m_activeTargets{};
-        std::vector<lag_record_t> m_lagRecords{};
+	std::vector<c_cs_player*> m_activeTargets{};
+	std::vector<lag_record_t> m_lagRecords{};
 
 	struct table_t
 	{
@@ -222,19 +186,19 @@ private:
 
 	const table_t knife_dmg{ { { { 25, 90 }, { 21, 76 } }, { { 40, 90 }, { 34, 76 } } }, { { 65, 180 }, { 55, 153 } } };
 	std::array<vec3_t, 12 > knife_ang
-	{ 
-		vec3_t{ 0.f, 0.f, 0.f }, 
-		vec3_t{ 0.f, -90.f, 0.f }, 
+	{
+		vec3_t{ 0.f, 0.f, 0.f },
+		vec3_t{ 0.f, -90.f, 0.f },
 		vec3_t{ 0.f, 90.f, 0.f },
-		vec3_t{ 0.f, 180.f, 0.f }, 
-		vec3_t{ -80.f, 0.f, 0.f }, 
+		vec3_t{ 0.f, 180.f, 0.f },
+		vec3_t{ -80.f, 0.f, 0.f },
 		vec3_t{ -80.f, -90.f, 0.f },
-		vec3_t{ -80.f, 90.f, 0.f }, 
+		vec3_t{ -80.f, 90.f, 0.f },
 		vec3_t{ -80.f, 180.f, 0.f },
-		vec3_t{ 80.f, 0.f, 0.f }, 
-		vec3_t{ 80.f, -90.f, 0.f }, 
-		vec3_t{ 80.f, 90.f, 0.f }, 
-		vec3_t{ 80.f, 180.f, 0.f } 
+		vec3_t{ 80.f, 0.f, 0.f },
+		vec3_t{ 80.f, -90.f, 0.f },
+		vec3_t{ 80.f, 90.f, 0.f },
+		vec3_t{ 80.f, 180.f, 0.f }
 	};
 
 	void update_hitboxes();
@@ -272,12 +236,12 @@ public:
 	bool revolver_fire{};
 	int missed_shots[65]{};
 	rage_player_t best_rage_player{};
-        rage_weapon_t rage_config{};
+	rage_weapon_t rage_config{};
 
-        INLINE aim_point_visual_t* get_aim_point(int idx)
-        {
-                return &aim_points[idx];
-        }
+	INLINE aim_point_visual_t* get_aim_point(int idx)
+	{
+		return &aim_points[idx];
+	}
 
 	INLINE float get_dynamic_scale(const vec3_t& point, const float& hitbox_radius)
 	{
@@ -347,14 +311,14 @@ public:
 		rage_config = {};
 		best_rage_player.reset();
 		predicted_eye_pos.reset();
-                hitboxes.clear();
-                shots.clear();
-                m_activeTargets.clear();
-                m_lagRecords.clear();
+		hitboxes.clear();
+		shots.clear();
+		m_activeTargets.clear();
+		m_lagRecords.clear();
 
-                for (auto& i : aim_points)
-                        i.reset();
-        }
+		for (auto& i : aim_points)
+			i.reset();
+	}
 
 	INLINE void build_seeds()
 	{
@@ -371,20 +335,21 @@ public:
 		}
 	}
 
+	multipoints_t get_points(c_cs_player* player, int hitbox, matrix3x4_t* matrix);
 	bool can_fire();
 	bool is_shooting();
 	void run_stop();
 	void auto_pistol();
 	void auto_revolver();
 	bool knife_is_behind(c_cs_player* player, anim_record_t* record);
-        bool knife_trace(vec3_t dir, bool stab, c_game_trace* trace);
-        bool can_knife(c_cs_player* player, anim_record_t* record, vec3_t angle, bool& stab);
-        void knife_bot();
-        void UpdateOrPruneTargetHistory(c_cs_player* target);
-        bool CheckHitchance(const vec3_t& shoot_pos, c_cs_player* target, c_base_combat_weapon* weapon, const vec3_t& aim_angle, float required);
-        void on_game_events(c_game_event* event);
-        void proceed_misses();
-        void run();
+	bool knife_trace(vec3_t dir, bool stab, c_game_trace* trace);
+	bool can_knife(c_cs_player* player, anim_record_t* record, vec3_t angle, bool& stab);
+	void knife_bot();
+	void UpdateOrPruneTargetHistory(c_cs_player* target);
+	bool CheckHitchance(const vec3_t& shoot_pos, c_cs_player* target, c_base_combat_weapon* weapon, const vec3_t& aim_angle, float required);
+	void on_game_events(c_game_event* event);
+	void proceed_misses();
+	void run();
 };
 
 #ifdef _DEBUG
