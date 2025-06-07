@@ -182,9 +182,10 @@ struct networked_vars_t
 	float recoil_index{};
 	float acc_penalty{};
 	float lower_body_yaw{};
-	float thirdperson_recoil{};
-	float fall_velocity{};
-	float velocity_modifier{};
+        float thirdperson_recoil{};
+        float fall_velocity{};
+        float velocity_modifier{};
+        float gravity{};
 
 	vec3_t origin{};
 	vec3_t abs_origin{};
@@ -224,7 +225,8 @@ struct networked_vars_t
 		duck_amount = HACKS->local->duck_amount();
 		stamina = HACKS->local->stamina();
 		fall_velocity = HACKS->local->fall_velocity();
-		velocity_modifier = HACKS->local->velocity_modifier();
+                velocity_modifier = HACKS->local->velocity_modifier();
+                gravity = HACKS->convars.sv_gravity->get_float();
 
 		origin = HACKS->local->origin();
 		abs_origin = HACKS->local->get_abs_origin();
@@ -293,8 +295,9 @@ struct networked_vars_t
 		spread = 0.f;
 		inaccuracy = 0.f;
 		stamina = 0.f;
-		fall_velocity = 0.f;
-		velocity_modifier = 0.f;
+                fall_velocity = 0.f;
+                velocity_modifier = 0.f;
+                gravity = 0.f;
 
 		recoil_index = 0.f;
 		acc_penalty = 0.f;
