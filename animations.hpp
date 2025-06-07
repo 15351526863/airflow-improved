@@ -51,9 +51,10 @@ struct anim_record_t
 	float old_jitter_diff{};
 	float last_jitter_time{};
 	float collision_change_time{};
-	float collision_change_origin{};
-	float lby{};
-	float thirdperson_recoil{};
+        float collision_change_origin{};
+        float lby{};
+        float thirdperson_recoil{};
+        float surface_friction{};
 
 	vec3_t velocity{};
 	vec3_t velocity_for_animfix{};
@@ -124,7 +125,8 @@ struct anim_record_t
 		collision_change_origin = player->collision_change_origin();
 #endif
 		lby = player->lower_body_yaw();
-		thirdperson_recoil = player->thirdperson_recoil();
+                thirdperson_recoil = player->thirdperson_recoil();
+                surface_friction = player->surface_friction();
 		view_offset = player->view_offset();
 		abs_angles = player->get_abs_angles();
 
@@ -204,7 +206,8 @@ struct anim_record_t
 		collision_change_origin = 0.f;
 		last_shot_time = 0.f;
 		lby = 0.f;
-		thirdperson_recoil = 0.f;
+                thirdperson_recoil = 0.f;
+                surface_friction = 0.f;
 
 		velocity.reset();
 		velocity_for_animfix.reset();

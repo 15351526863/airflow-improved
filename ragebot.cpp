@@ -693,8 +693,8 @@ void player_move(c_cs_player* player, anim_record_t* record)
 			break;
 
 		float dot = move_velocity.dot(trace.plane.normal);
-		// TODO: --- 速度衰减系数（*实际是m_surfaceFriction*）
-		vec3_t clipped_velocity = move_velocity - trace.plane.normal * dot * (2.f * 0.85f);
+                float friction = record->surface_friction;
+                vec3_t clipped_velocity = move_velocity - trace.plane.normal * dot * (2.f * friction);
 
 		move_velocity = clipped_velocity;
 
@@ -717,11 +717,11 @@ void player_move(c_cs_player* player, anim_record_t* record)
 		record->prediction.flags.force(FL_ONGROUND);
 
 		// --- 斜坡滑动检测
-		if (trace.plane.normal.z < 0.2f && move_velocity.length_sqr() > 100.f)
-		{
-			// TODO: --- 重力（实际是*sv_gravity*）
-			move_velocity.z -= HACKS->global_vars->interval_per_tick * 800.f;
-		}
+                if (trace.plane.normal.z < 0.2f && move_velocity.length_sqr() > 100.f)
+                {
+                        auto net = ENGINE_PREDICTION->get_networked_vars(HACKS->cmd->command_number);
+                        move_velocity.z -= HACKS->global_vars->interval_per_tick * net->gravity;
+                }
 	}
 	else {
 		record->prediction.flags.remove(FL_ONGROUND);
