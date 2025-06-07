@@ -170,6 +170,14 @@ private:
 
         std::vector<aim_shot_record_t> shots{};
 
+        struct lag_record_t
+        {
+                c_cs_player* player{};
+        };
+
+        std::vector<c_cs_player*> m_activeTargets{};
+        std::vector<lag_record_t> m_lagRecords{};
+
 	struct table_t
 	{
 		std::uint8_t swing[2][2][2]{};
@@ -305,6 +313,8 @@ public:
 		predicted_eye_pos.reset();
                 hitboxes.clear();
                 shots.clear();
+                m_activeTargets.clear();
+                m_lagRecords.clear();
 
                 for (auto& i : aim_points)
                         i.reset();
@@ -332,12 +342,14 @@ public:
 	void auto_pistol();
 	void auto_revolver();
 	bool knife_is_behind(c_cs_player* player, anim_record_t* record);
-	bool knife_trace(vec3_t dir, bool stab, c_game_trace* trace);
-	bool can_knife(c_cs_player* player, anim_record_t* record, vec3_t angle, bool& stab);
-	void knife_bot();
-	void on_game_events(c_game_event* event);
-	void proceed_misses();
-	void run();
+        bool knife_trace(vec3_t dir, bool stab, c_game_trace* trace);
+        bool can_knife(c_cs_player* player, anim_record_t* record, vec3_t angle, bool& stab);
+        void knife_bot();
+        void UpdateOrPruneTargetHistory(c_cs_player* target);
+        bool CheckHitchance(const vec3_t& shoot_pos, c_cs_player* target, c_base_combat_weapon* weapon, const vec3_t& aim_angle, float required);
+        void on_game_events(c_game_event* event);
+        void proceed_misses();
+        void run();
 };
 
 #ifdef _DEBUG

@@ -13,6 +13,8 @@
 #include "resolver.hpp"
 #include "ragebot.hpp"
 #include "poly.hpp"
+#include <algorithm>
+#include <cmath>
 
 void draw_hitbox__(c_cs_player* player, matrix3x4_t* bones, int idx, int idx2, bool dur = false)
 {
@@ -37,6 +39,67 @@ void draw_hitbox__(c_cs_player* player, matrix3x4_t* bones, int idx, int idx2, b
 		if (hitbox->radius != -1.f)
 			HACKS->debug_overlay->add_capsule_overlay(vMin, vMax, hitbox->radius, 255, 255 * idx, 255 * idx2, 150, dur ? HACKS->global_vars->interval_per_tick * 2 : 5.f, 0, 1);
 	}
+}
+
+void c_ragebot::UpdateOrPruneTargetHistory(c_cs_player* pTarget)
+{
+        if (!pTarget || !HACKS->local)
+                return;
+
+        m_activeTargets.erase(std::remove(m_activeTargets.begin(), m_activeTargets.end(), pTarget), m_activeTargets.end());
+
+        if (!pTarget->is_alive())
+        {
+                m_lagRecords.erase(std::remove_if(m_lagRecords.begin(), m_lagRecords.end(),
+                        [pTarget](const lag_record_t& rec) { return rec.player == pTarget; }),
+                        m_lagRecords.end());
+        }
+}
+
+bool c_ragebot::CheckHitchance(const vec3_t& shootPosition, c_cs_player* pTarget, c_base_combat_weapon* pWeapon, const vec3_t& aimAngle, float requiredHitchance)
+{
+        if (!pTarget || !pWeapon || !HACKS->local)
+                return false;
+
+        float weaponSpread = pWeapon->get_spread();
+        float weaponInaccuracy = pWeapon->get_inaccuracy();
+
+        math::random_seed((HACKS->global_vars->tickcount + pTarget->ping()) % 256);
+
+        vec3_t forward, right, up;
+        math::angle_vectors(aimAngle, &forward, &right, &up);
+
+        int hits = 0;
+        const int totalSamples = 256;
+
+        c_trace_filter_simple filter(HACKS->local);
+
+        for (int i = 0; i < totalSamples; i++)
+        {
+                float randomA = math::random_float(0.f, 2.f * M_PI);
+                float randomB = math::random_float(0.f, weaponSpread);
+                float randomC = math::random_float(0.f, 2.f * M_PI);
+                float randomD = math::random_float(0.f, weaponInaccuracy);
+
+                vec3_t spread{ std::cos(randomA) * randomB + std::cos(randomC) * randomD,
+                               std::sin(randomA) * randomB + std::sin(randomC) * randomD,
+                               0.f };
+
+                vec3_t spreadDir = forward + right * spread.x + up * spread.y;
+                spreadDir.normalize();
+
+                vec3_t end = shootPosition + spreadDir * HACKS->weapon_info->range;
+
+                c_game_trace tr{};
+                HACKS->engine_trace->trace_ray(ray_t(shootPosition, end), MASK_SHOT_HULL | CONTENTS_HITBOX, &filter, &tr);
+
+                if (tr.entity == pTarget)
+                        hits++;
+        }
+
+        float actual = (static_cast<float>(hits) / static_cast<float>(totalSamples)) * 100.f;
+
+        return actual >= requiredHitchance;
 }
 
 INLINE bool valid_hitgroup(int index)
@@ -945,83 +1008,18 @@ void get_result(bool& out, const vec3_t& start, const vec3_t& end, rage_player_t
 
 bool hitchance(vec3_t eye_pos, rage_player_t& rage, const rage_point_t& point, anim_record_t* record, const float& chance, matrix3x4_t* matrix, float* hitchance_out = nullptr)
 {
-	static auto weapon_accuracy_nospread = HACKS->convars.weapon_accuracy_nospread;
+        auto weapon = HACKS->weapon;
+        if (!weapon)
+                return false;
 
-	if (weapon_accuracy_nospread && weapon_accuracy_nospread->get_bool())
-	{
-		if (hitchance_out) *hitchance_out = 1.f;
-		return true;
-	}
+        vec3_t angle = math::calc_angle(eye_pos, point.aim_point).normalized_angle();
 
-	auto net_vars = ENGINE_PREDICTION->get_networked_vars(HACKS->cmd->command_number);
-	float inaccuracy = net_vars->inaccuracy + net_vars->spread;
+        bool result = CheckHitchance(eye_pos, rage.player, weapon, angle, chance * 100.f);
 
-	if ((HACKS->ideal_inaccuracy + 0.0005f) >= net_vars->inaccuracy)
-	{
-		if (hitchance_out) *hitchance_out = 1.f;
-		return true;
-	}
+        if (hitchance_out)
+                *hitchance_out = result ? 1.f : 0.f;
 
-	auto matrix_to_aim = record->extrapolated ? record->predicted_matrix : record->matrix_orig.matrix;
-	auto active_matrix = matrix ? matrix : matrix_to_aim;
-
-	rage.restore.store(rage.player);
-	LAGCOMP->set_record(rage.player, record, active_matrix);
-
-	vec3_t aim_dir = (point.aim_point - eye_pos).normalized();
-	float dist = eye_pos.dist_to(point.aim_point);
-	float spread_r = dist * inaccuracy;
-
-	float tgt_r = 0.f;
-	vec3_t tgt_center{};
-
-	if (auto hdr = HACKS->model_info->get_studio_model(rage.player->get_model()))
-	{
-		if (auto set = hdr->hitbox_set(0))
-		{
-			if (auto box = set->hitbox(point.hitbox))
-			{
-				vec3_t mn, mx;
-				math::vector_transform(box->min, active_matrix[box->bone], mn);
-				math::vector_transform(box->max, active_matrix[box->bone], mx);
-				tgt_center = (mn + mx) * 0.5f;
-				tgt_r = box->radius > 0.f ? box->radius : (mx - mn).length() * 0.5f;
-			}
-		}
-	}
-
-	vec3_t diff = tgt_center - point.aim_point;
-	float d = (diff - aim_dir * diff.dot(aim_dir)).length();
-
-	// Geometric analysis
-	auto overlap_ratio = [&](float r1, float r2, float sep) -> float
-		{
-			if (r1 <= 0.f)
-				return 0.f;
-
-			if (sep >= r1 + r2)
-				return 0.f;
-
-			if (sep <= std::fabs(r1 - r2))
-				return r2 <= r1 ? (r2 * r2) / (r1 * r1) : 1.f;
-
-			float r1sq = r1 * r1, r2sq = r2 * r2;
-			float alpha = std::acos((sep * sep + r1sq - r2sq) / (2.f * sep * r1));
-			float beta = std::acos((sep * sep + r2sq - r1sq) / (2.f * sep * r2));
-			float part = -sep + r1 + r2;
-			float area = r1sq * alpha + r2sq * beta - 0.5f * std::sqrt(part * (sep + r1 - r2) * (sep - r1 + r2) * (sep + r1 + r2));
-
-			return area / (M_PI * r1sq);
-		};
-
-	float probability = overlap_ratio(spread_r, tgt_r, d);
-
-	if (hitchance_out)
-		*hitchance_out = std::clamp(probability, 0.f, 1.f);
-
-	rage.restore.restore(rage.player);
-
-	return probability >= chance;
+        return result;
 }
 
 void collect_damage_from_multipoints(int damage, vec3_t& predicted_eye_pos, rage_player_t* rage, rage_point_t& points, anim_record_t* record, matrix3x4_t* matrix_to_aim, bool predicted)
@@ -1646,11 +1644,10 @@ void c_ragebot::run()
 		if (!can_fire())
 			return;
 
-		float out_chance = 0.f;
-		auto max_hitchance = rage_config.hitchance * 0.01f;
+                auto max_hitchance = static_cast<float>(rage_config.hitchance);
 
-		if (!hitchance(ideal_start, best_rage_player, best_point, best_record, max_hitchance, nullptr, &out_chance))
-			return;
+                if (!CheckHitchance(ideal_start, best_rage_player.player, HACKS->weapon, aim_angle, max_hitchance))
+                        return;
 
 		if (g_cfg.rage.auto_fire)
 			HACKS->cmd->buttons.force(IN_ATTACK);
@@ -1664,16 +1661,15 @@ void c_ragebot::run()
 			HACKS->cmd->tickcount = TIME_TO_TICKS(record_time + HACKS->lerp_time);
 			auto backtrack_ticks = std::abs(TIME_TO_TICKS(best_rage_player.player->sim_time() - record_time));
 
-			if (g_cfg.visuals.eventlog.logs & 4)
-			{
-				EVENT_LOGS->push_message(tfm::format(CXOR("Fire to %s [hitbox: %s | hc: %d | sp: %d | dmg: %d | tick: %d]"),
-					best_rage_player.player->get_name().c_str(),
-					main_utils::hitbox_to_string(best_point.hitbox).c_str(),
-					(int)(out_chance * 100.f),
-					best_point.safety,
-					best_point.damage,
-					best_record->extrapolated ? -best_record->extrapolate_ticks : backtrack_ticks), {}, true);
-			}
+                        if (g_cfg.visuals.eventlog.logs & 4)
+                        {
+                                EVENT_LOGS->push_message(tfm::format(CXOR("Fire to %s [hitbox: %s | sp: %d | dmg: %d | tick: %d]"),
+                                        best_rage_player.player->get_name().c_str(),
+                                        main_utils::hitbox_to_string(best_point.hitbox).c_str(),
+                                        best_point.safety,
+                                        best_point.damage,
+                                        best_record->extrapolated ? -best_record->extrapolate_ticks : backtrack_ticks), {}, true);
+                        }
 
 			if (g_cfg.visuals.chams[c_onshot].enable)
 				CHAMS->add_shot_record(best_rage_player.player, best_record->matrix_orig.matrix);
