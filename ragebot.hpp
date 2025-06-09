@@ -10,10 +10,37 @@ using multipoint_t = std::pair<vec3_t, bool>;
 using multipoints_t = std::vector<multipoint_t>;
 using rage_bullet_t = std::pair<vec3_t, std::uint64_t>;
 
+enum multipoint_flags_t
+{
+	SCAN_MULTIPOINT = 1 << 0,
+	SCAN_UPDATE_ANIM = 1 << 1
+};
+
+struct multipoint_request_t
+{
+	vec3_t eye_pos{};
+	vec3_t target_pos{};
+	c_cs_player* target_ent{};
+	int target_idx{};
+	int scan_flags{};
+	const int* cfg_min_damage{};
+	vec3_t* world_position{};
+	bool* can_bullet_tp{};
+};
+
+struct multipoint_work_t
+{
+	float best_damage{};
+	vec3_t best_point{};
+	int best_hitbox{ -1 };
+	bool can_tp{};
+};
+
 struct resolver_info_t;
 inline std::vector<std::tuple<float, float, float>> precomputed_seeds{};
 
 struct restore_record_t;
+
 
 struct aim_shot_record_t
 {
@@ -153,8 +180,6 @@ struct AimContext_t
 	INLINE void ClearFailureFlags() {}
 	INLINE bool ShouldOverrideTarget(c_cs_player*) const { return true; }
 };
-
-bool Ragebot_RegisterAimPoint(AimContext_t* ctx, const vec3_t& point, c_cs_player* target, int hitbox);
 
 struct knife_point_t
 {
@@ -363,9 +388,9 @@ public:
 		}
 	}
 
-	multipoints_t get_points(c_cs_player* player, int hitbox, matrix3x4_t* matrix);
 	bool can_fire(bool ignore_revolver);
 	bool is_shooting();
+	bool get_points(const multipoint_request_t& in);
 	void run_stop();
 	void auto_pistol();
 	void auto_revolver();
@@ -373,8 +398,6 @@ public:
 	bool knife_trace(vec3_t dir, bool stab, c_game_trace* trace);
 	bool can_knife(c_cs_player* player, anim_record_t* record, vec3_t angle, bool& stab);
 	void knife_bot();
-	void UpdateOrPruneTargetHistory(c_cs_player* target);
-	bool CheckHitchance(const vec3_t& shoot_pos, c_cs_player* target, c_base_combat_weapon* weapon, const vec3_t& aim_angle, float required);
 	void on_game_events(c_game_event* event);
 	void proceed_misses();
 	void run();
