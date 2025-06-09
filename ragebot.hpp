@@ -130,28 +130,28 @@ struct rage_player_t
 
 struct AimContext_t
 {
-        int m_iCurrentBestHitbox{};
-        c_cs_player* m_pCurrentBestTarget{};
-        int m_iTargetPlayerIndex{};
-        int m_iLastBestHitbox{};
-        bool m_bHasValidTarget{};
-        float m_flSomeTimestamp{};
-        int m_iSomeTargetID1{};
-        bool m_bIgnoreBounds{};
-        int m_iLastScannedHitbox{};
-        vec3_t m_vecLastScannedPoint{};
-        bool m_bAimbotHasTarget{};
-        c_cs_player* m_pFinalTarget{};
-        int m_iFinalHitbox{};
-        float m_flFinalDamage{};
-        vec3_t m_vecFinalPoint{};
+	int m_iCurrentBestHitbox{};
+	c_cs_player* m_pCurrentBestTarget{};
+	int m_iTargetPlayerIndex{};
+	int m_iLastBestHitbox{};
+	bool m_bHasValidTarget{};
+	float m_flSomeTimestamp{};
+	int m_iSomeTargetID1{};
+	bool m_bIgnoreBounds{};
+	int m_iLastScannedHitbox{};
+	vec3_t m_vecLastScannedPoint{};
+	bool m_bAimbotHasTarget{};
+	c_cs_player* m_pFinalTarget{};
+	int m_iFinalHitbox{};
+	float m_flFinalDamage{};
+	vec3_t m_vecFinalPoint{};
 
-        INLINE void UpdateTargetPoint(const vec3_t&) {}
-        INLINE bool IsPointWithinBounds(const vec3_t&) const { return true; }
-        INLINE bool IsPointWithinSecondaryBounds(const vec3_t&) const { return true; }
-        INLINE void SetPointAsInvalid(int) {}
-        INLINE void ClearFailureFlags() {}
-        INLINE bool ShouldOverrideTarget(c_cs_player*) const { return true; }
+	INLINE void UpdateTargetPoint(const vec3_t&) {}
+	INLINE bool IsPointWithinBounds(const vec3_t&) const { return true; }
+	INLINE bool IsPointWithinSecondaryBounds(const vec3_t&) const { return true; }
+	INLINE void SetPointAsInvalid(int) {}
+	INLINE void ClearFailureFlags() {}
+	INLINE bool ShouldOverrideTarget(c_cs_player*) const { return true; }
 };
 
 bool Ragebot_RegisterAimPoint(AimContext_t* ctx, const vec3_t& point, c_cs_player* target, int hitbox);
@@ -364,7 +364,7 @@ public:
 	}
 
 	multipoints_t get_points(c_cs_player* player, int hitbox, matrix3x4_t* matrix);
-	bool can_fire();
+	bool can_fire(bool ignore_revolver);
 	bool is_shooting();
 	void run_stop();
 	void auto_pistol();
