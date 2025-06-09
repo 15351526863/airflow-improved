@@ -662,13 +662,16 @@ std::vector<rage_point_t> get_hitbox_points(int damage, std::vector<int>& hitbox
 	return out;
 }
 
-static void Wrapper_traceray(c_game_trace* out, const vec3_t& start, const vec3_t& end,
-	unsigned int mask, i_trace_filter* filter, c_base_entity* skip)
+static void Wrapper_traceray(c_game_trace* out,
+	const vec3_t& start, const vec3_t& end,
+	unsigned int mask, i_trace_filter* filter,
+	c_base_entity* skip)
 {
 	HACKS->engine_trace->trace_ray(ray_t(start, end), mask, filter, out);
 
-	const float TRACE_FRACTION_OFFSET = 0.00001f;
-	out->fraction = std::floorf(out->fraction + TRACE_FRACTION_OFFSET);
+	constexpr float kEpsilon = 1e-5f; //fuck it
+
+	out->fraction = std::clamp(out->fraction + kEpsilon, 0.0f, 1.0f);
 }
 
 void player_move(c_cs_player* player, anim_record_t* record)
