@@ -12,7 +12,49 @@
 #include "penetration.hpp"
 #include "resolver.hpp"
 #include "ragebot.hpp"
-#include "poly.hpp"
+
+namespace
+{
+	multipoint_work_t g_work{};
+
+	struct aim_info_t
+	{
+		int entity_idx{};
+		vec3_t aim_vec{};
+		int flags{};
+	} g_aim_info{};
+
+	// helper
+	bool register_aim_point(const vec3_t& world, int ent_idx, const vec3_t* override_dir = nullptr)
+	{
+		auto ctx = HACKS->local;
+		auto target = static_cast<c_cs_player*>(HACKS->entity_list->get_client_entity(ent_idx));
+		if (!ctx || !target)
+			return false;
+
+		vec3_t dir = override_dir ? *override_dir : (world - ctx->get_eye_position());
+		(void)dir;
+
+		vec3_t abs_mins{}, abs_maxs{};
+		if (auto collideable = ctx->get_collideable())
+		{
+			abs_mins = collideable->get_mins() + ctx->get_abs_origin();
+			abs_maxs = collideable->get_maxs() + ctx->get_abs_origin();
+		}
+
+		bool inside =
+			world.x >= abs_mins.x && world.x <= abs_maxs.x &&
+			world.y >= abs_mins.y && world.y <= abs_maxs.y &&
+			world.z >= abs_mins.z && world.z <= abs_maxs.z;
+
+		g_aim_info.entity_idx = ent_idx;
+		g_aim_info.aim_vec = world;
+		g_aim_info.flags = inside ? 1 : 128;
+		return true;
+	}
+}
+
+
 
 void draw_hitbox__(c_cs_player* player, matrix3x4_t* bones, int idx, int idx2, bool dur = false)
 {
@@ -84,51 +126,6 @@ bool can_hit_hitbox(const vec3_t& start, const vec3_t& end, rage_player_t* rage,
 	}
 
 	return false;
-}
-
-float get_point_accuracy(rage_player_t* rage, vec3_t& eye_pos, const rage_point_t& point, matrix3x4_t* matrix, anim_record_t* record)
-{
-	static auto weapon_accuracy_nospread = HACKS->convars.weapon_accuracy_nospread;
-	if (weapon_accuracy_nospread && weapon_accuracy_nospread->get_bool())
-		return 1.f;
-
-	auto predicted_info = ENGINE_PREDICTION->get_networked_vars(HACKS->cmd->command_number);
-
-	auto hits = 0;
-
-	auto spread = predicted_info->spread + predicted_info->inaccuracy;
-	auto angle = math::calc_angle(eye_pos, point.aim_point).normalized_angle();
-
-	vec3_t forward, right, up;
-	math::angle_vectors(angle, &forward, &right, &up);
-
-	for (auto i = 1; i <= 6; ++i)
-	{
-		for (auto j = 0; j < 8; ++j)
-		{
-			auto current_spread = spread * ((float)i / 6.f);
-
-			float value = (float)j / 8.0f * (M_PI * 2.f);
-
-			auto direction_cos = std::cos(value);
-			auto direction_sin = std::sin(value);
-
-			auto spread_x = direction_sin * current_spread;
-			auto spread_y = direction_cos * current_spread;
-
-			vec3_t direction{};
-			direction.x = forward.x + spread_x * right.x + spread_y * up.x;
-			direction.y = forward.y + spread_x * right.y + spread_y * up.y;
-			direction.z = forward.z + spread_x * right.z + spread_y * up.z;
-
-			auto end = eye_pos + direction * HACKS->weapon_info->range;
-
-			if (can_hit_hitbox(eye_pos, end, rage, point.hitbox, matrix, record))
-				hits++;
-		}
-	}
-
-	return (float)hits / 48.f;
 }
 
 bool c_ragebot::can_fire(bool ignore_revolver)
@@ -234,202 +231,122 @@ void c_ragebot::update_hitboxes()
 	}
 }
 
-multipoints_t c_ragebot::get_points(c_cs_player* player, int hitbox, matrix3x4_t* matrix)
+
+
+bool c_ragebot::get_points(const multipoint_request_t& in)
 {
-	multipoints_t out;
-	if (!player || !player->is_alive())
-		return out;
+	auto local = HACKS->local;
+	if (!local || !local->is_alive())
+		return false;
 
-	auto hdr = HACKS->model_info->get_studio_model(player->get_model());
-	if (!hdr)
-		return out;
+	c_cs_player* target = in.target_ent;
+	if (!target)
+		target = static_cast<c_cs_player*>(HACKS->entity_list->get_client_entity(in.target_idx));
 
-	auto set = hdr->hitbox_set(player->hitbox_set());
-	if (!set)
-		return out;
+	if (!target || !target->is_alive())
+		return false;
 
-	auto bbox = set->hitbox(hitbox);
-	if (!bbox)
-		return out;
+	const int idx = target->index();
 
-	auto build = [&](matrix3x4_t* base)
-		{
-			if (!base)
-				return;
-
-			vec3_t bbmin, bbmax;
-			math::vector_transform(bbox->min, base[bbox->bone], bbmin);
-			math::vector_transform(bbox->max, base[bbox->bone], bbmax);
-
-
-			vec3_t center = (bbmin + bbmax) * 0.5f;
-
-			if (bbox->radius <= 0.f)
-			{
-				out.emplace_back(center, true);
-				return;
-			}
-
-			auto local_anim = ANIMFIX->get_local_anims();
-			vec3_t eye_pos = local_anim ? local_anim->eye_pos : HACKS->local->origin();
-			vec3_t n = (center - eye_pos).normalized();
-			vec3_t u = n.cross({ 0.f, 0.f, 1.f });
-
-			if (u.length_sqr() < 1e-6f)
-				u = { 1.f, 0.f, 0.f };
-
-			u.normalized();
-			vec3_t v = u.cross(n).normalized();
-
-			auto lerp = [&](const vec3_t& a, const vec3_t& b, float t)
-				{
-					return (a * (1.f - t) + b * t).normalized() * bbox->radius;
-				};
-
-			auto push = [&](const vec3_t& dir, const vec3_t& mn, const vec3_t& mx, std::vector<vec3_t>& ring)
-				{
-					ring.emplace_back(mn + dir);
-					ring.emplace_back(mx + dir);
-				};
-
-			std::vector<vec3_t> ring;
-			ring.reserve(24);
-
-			vec3_t right = u * bbox->radius;
-			vec3_t top = vec3_t(0.f, 0.f, 1.f) * bbox->radius;
-			vec3_t left = -right;
-			vec3_t bot = -top;
-
-			auto fill_ring = [&](std::vector<vec3_t>& r, const vec3_t& mn, const vec3_t& mx)
-				{
-					push(right, mn, mx, r);
-					push(top, mn, mx, r);
-					push(left, mn, mx, r);
-					push(bot, mn, mx, r);
-
-					push(lerp(right, top, 0.375f), mn, mx, r);
-					push(lerp(right, top, 0.625f), mn, mx, r);
-					push(lerp(right, bot, 0.375f), mn, mx, r);
-					push(lerp(right, bot, 0.625f), mn, mx, r);
-
-					push(lerp(left, top, 0.375f), mn, mx, r);
-					push(lerp(left, top, 0.625f), mn, mx, r);
-					push(lerp(left, bot, 0.375f), mn, mx, r);
-					push(lerp(left, bot, 0.625f), mn, mx, r);
-				};
-
-			fill_ring(ring, bbmin, bbmax);
-
-			for (auto& p : ring)
-				p -= n * (p - center).dot(n);
-
-			Vector p0(center.x, center.y, center.z);
-			if (!ring.empty())
-				p0 = { ring.front().x, ring.front().y, ring.front().z };
-
-			std::vector<Vector> flat;
-			flat.reserve(ring.size());
-
-			auto project = [&](const vec3_t& p)
-				{
-					Vector q;
-					q.x = (p - vec3_t(p0.x, p0.y, p0.z)).dot(u);
-					q.y = (p - vec3_t(p0.x, p0.y, p0.z)).dot(v);
-					q.z = 0.f;
-					return q;
-				};
-
-			for (auto& p : ring)
-				flat.emplace_back(project(p));
-
-			poly_intersect::graham_scan(flat);
-
-			float rs = 0.975f;
-
-			if (hitbox == HITBOX_LEFT_CALF || hitbox == HITBOX_RIGHT_CALF || hitbox == HITBOX_LEFT_FOOT || hitbox == HITBOX_RIGHT_FOOT)
-				rs *= 0.8f;
-
-			auto net = ENGINE_PREDICTION->get_networked_vars(HACKS->cmd->command_number);
-			rs = std::clamp(rs - (net->spread + net->inaccuracy) * 0.1f, 0.f, 0.975f);
-
-			float scale = hitbox == HITBOX_HEAD ? get_head_scale(player) : get_body_scale(player);
-			rs *= 0.5f + 0.5f * std::clamp(scale, 0.f, 0.95f);
-
-			if (!HACKS->convars.cl_lagcompensation->get_int() || !HACKS->convars.cl_predict->get_int())
-				rs *= 0.8f;
-
-			auto to_world = [&](const Vector& q)
-				{
-					return vec3_t(p0.x, p0.y, p0.z) + u * q.x + v * q.y;
-				};
-
-			auto emit = [&](std::vector<Vector>& poly)
-				{
-					if (poly.size() < 3)
-						return;
-
-					Vector L = poly[0], R = poly[0], T = poly[0], B = poly[0];
-					for (auto& p : poly)
-					{
-						if (p.x < L.x) L = p;
-						if (p.x > R.x) R = p;
-						if (p.y > T.y) T = p;
-						if (p.y < B.y) B = p;
-					}
-
-					Vector c((L.x + R.x + T.x + B.x) * 0.25f, (L.y + R.y + T.y + B.y) * 0.25f, 0.f);
-
-					auto shrink = [&](const Vector& e)
-						{
-							return Vector(c.x + (e.x - c.x) * rs, c.y + (e.y - c.y) * rs, 0.f);
-						};
-
-					Vector ts = shrink(T), bs = shrink(B), ls = shrink(L), rs_ = shrink(R);
-
-					vec3_t center_mod = center;
-
-					if (hitbox == HITBOX_HEAD)
-					{
-						vec3_t tw = to_world(ts);
-						vec3_t bw = to_world(bs);
-						vec3_t pt = tw;
-
-						for (int i = 0; i < 6; ++i)
-						{
-							float t = float(i) / 6.f;
-							pt = tw + (bw - tw) * t;
-							auto bullet = penetration::simulate(HACKS->local, player, eye_pos, pt);
-							if (!bullet.traced_target || bullet.traced_target->index() != player->index() || bullet.hitgroup != HITGROUP_HEAD)
-								break;
-						}
-						center_mod = (tw + pt) * 0.5f;
-					}
-
-					out.emplace_back(center_mod, true);
-
-					if (rs >= 0.01f)
-					{
-						if (hitbox != HITBOX_HEAD)
-						{
-							out.emplace_back(to_world(ls), false);
-							out.emplace_back(to_world(rs_), false);
-							out.emplace_back(to_world(bs), false);
-						}
-						out.emplace_back(to_world(ts), false);
-					}
-				};
-
-			std::vector<Vector> poly = flat;
-
-			emit(poly);
-		};
-
-	if (matrix)
+	if (in.scan_flags & SCAN_UPDATE_ANIM)
 	{
-		build(matrix);
+		target->setup_bones(nullptr, 0, BONE_USED_BY_ANYTHING, HACKS->global_vars->curtime);
 	}
 
-	return out;
+	bool path_clear_eye = true;
+	bool path_clear_pos = true;
+	(void)path_clear_eye;
+	(void)path_clear_pos;
+
+	auto weapon = HACKS->weapon;
+	float inaccuracy = weapon ? weapon->get_inaccuracy() : 0.f;
+	float spread = weapon ? weapon->get_spread() : 0.f;
+	float fov_modifier = inaccuracy + spread * 0.5f;
+	(void)fov_modifier;
+
+	float min_dmg = 0.f;
+	if (weapon)
+	{
+		float recoil = weapon->recoil_index();
+		if (in.cfg_min_damage)
+			min_dmg = *in.cfg_min_damage + recoil;
+		else if (HACKS->weapon_info)
+			min_dmg = recoil + HACKS->weapon_info->penetration;
+	}
+
+	auto hdr = HACKS->model_info->get_studio_model(target->get_model());
+	if (!hdr)
+		return false;
+
+	auto set = hdr->hitbox_set(target->hitbox_set());
+	if (!set)
+		return false;
+
+	matrix3x4_t* bones = target->bone_cache().base();
+
+	g_work.best_damage = 0.f;
+	g_work.best_hitbox = -1;
+	g_work.can_tp = false;
+
+	const vec3_t dirs[6] = {
+			{1.f, 0.f, 0.f}, { -1.f, 0.f, 0.f },
+			{0.f, 1.f, 0.f}, {0.f, -1.f, 0.f},
+			{0.f, 0.f, 1.f}, {0.f, 0.f, -1.f}
+	};
+
+	for (int hb = 0; hb < set->num_hitboxes; ++hb)
+	{
+		auto box = set->hitbox(hb);
+		if (!box)
+			continue;
+
+		vec3_t center = (box->min + box->max) * 0.5f;
+		math::vector_transform(center, bones[box->bone], center);
+
+		std::vector<vec3_t> points;
+		points.emplace_back(center);
+
+		if (in.scan_flags & SCAN_MULTIPOINT)
+		{
+			float radius = box->radius > 0.f ? box->radius : box->max.x;
+			float scale = hb == HITBOX_HEAD ? get_head_scale(target) : get_body_scale(target);
+			if (scale <= 0.f)
+				scale = get_dynamic_scale(center, radius);
+
+			float step = radius * scale;
+			for (const auto& d : dirs)
+				points.emplace_back(center + d * step);
+		}
+
+		for (const auto& p : points)
+		{
+			auto bullet = penetration::simulate(local, target, in.eye_pos, p);
+			if (!bullet.traced_target || bullet.traced_target != target)
+				continue;
+
+			float dmg = static_cast<float>(bullet.damage);
+			if (dmg >= min_dmg && dmg > g_work.best_damage)
+			{
+				g_work.best_damage = dmg;
+				g_work.best_point = p;
+				g_work.best_hitbox = hb;
+				g_work.can_tp = bullet.penetration_count > 0;
+			}
+		}
+	}
+
+	if (g_work.best_hitbox == -1)
+		return false;
+
+	register_aim_point(g_work.best_point, idx);
+
+	if (in.world_position)
+		*in.world_position = g_work.best_point;
+
+	if (in.can_bullet_tp)
+		*in.can_bullet_tp = g_work.can_tp;
+
+	return true;
 }
 
 void c_ragebot::run_stop()
@@ -1014,82 +931,58 @@ bool hitchance(vec3_t eye_pos, rage_player_t& rage, const rage_point_t& point, a
 	return probability >= chance;
 }
 
+// remove the logic and as it a helper
 void collect_damage_from_multipoints(int damage, vec3_t& predicted_eye_pos, rage_player_t* rage, rage_point_t& points, anim_record_t* record, matrix3x4_t* matrix_to_aim, bool predicted)
 {
-	auto multipoints = RAGEBOT->get_points(rage->player, points.hitbox, matrix_to_aim);
-	if (multipoints.empty())
-		return;
-
 	auto local_anims = ANIMFIX->get_local_anims();
 
-	int wrong_damage_counter = 0;
+	multipoint_request_t req{};
+	req.eye_pos = predicted ? predicted_eye_pos : local_anims->eye_pos;
+	req.target_ent = rage->player;
+	req.target_idx = rage->player->index();
+	req.target_pos = rage->player->get_abs_origin();
+	req.scan_flags = SCAN_MULTIPOINT;
+	req.cfg_min_damage = &damage;
 
-	auto& start_eye_pos = predicted ? predicted_eye_pos : local_anims->eye_pos;
+	vec3_t world{};
+	bool can_tp{};
+	req.world_position = &world;
+	req.can_bullet_tp = &can_tp;
 
-	auto backup_origin = HACKS->local->get_abs_origin();
+	if (!RAGEBOT->get_points(req))
+		return;
 
-	if (predicted)
-		HACKS->local->set_abs_origin({ predicted_eye_pos.x, predicted_eye_pos.y, backup_origin.z });
-
-	for (auto& multipoint : multipoints)
-	{
-		if (multipoint.second)
-			continue;
-
-		bool quit_from_scan = false;
-		for (auto& i : rage->points_to_scan)
-		{
-			if (multipoint.first == i.aim_point)
-			{
-				quit_from_scan = true;
-				break;
-			}
-		}
-
-		if (quit_from_scan)
-			break;
-
-		auto bullet = penetration::simulate(HACKS->local, rage->player, start_eye_pos, multipoint.first);
-		if (bullet.damage < damage
-			|| bullet.traced_target == nullptr || bullet.traced_target != rage->player
-			|| HACKS->weapon->is_taser() && bullet.penetration_count < 4)
-			continue;
-
-		rage_point_t point{};
-		point.center = false;
-		point.hitbox = points.hitbox;
-		point.damage = bullet.damage;
-		point.aim_point = multipoint.first;
-		point.predicted_eye_pos = points.predicted_eye_pos;
+	rage_point_t point{};
+	point.center = false;
+	point.hitbox = g_work.best_hitbox;
+	point.damage = static_cast<int>(g_work.best_damage);
+	point.aim_point = world;
+	point.predicted_eye_pos = predicted;
 
 #ifndef LEGACY
-		point.safety = [&]()
-			{
-				auto safety = 0;
+	point.safety = [&]()
+		{
+			auto safety = 0;
 
-				matrix3x4_t* matrices[]
-				{
+			matrix3x4_t* matrices[]
+			{
 					record->matrix_left.matrix,
 					record->matrix_left.roll_matrix,
 					record->matrix_right.matrix,
 					record->matrix_right.roll_matrix,
 					record->matrix_zero.matrix,
-				};
+			};
 
-				for (int i = 0; i < 5; ++i)
-				{
-					if (can_hit_hitbox(start_eye_pos, multipoint.first, rage, points.hitbox, matrices[i], record))
-						++safety;
-				}
+			for (int i = 0; i < 5; ++i)
+			{
+				if (can_hit_hitbox(req.eye_pos, world, rage, g_work.best_hitbox, matrices[i], record))
+					++safety;
+			}
 
-				return safety;
-			}();
+			return safety;
+		}();
 #endif
-		rage->points_to_scan.emplace_back(point);
-	}
-
-	if (predicted)
-		HACKS->local->set_abs_origin(backup_origin);
+	rage->points_to_scan.emplace_back(point);
 }
 
 void c_ragebot::do_hitscan(rage_player_t* rage)
