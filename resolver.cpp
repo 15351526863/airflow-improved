@@ -1,168 +1,164 @@
-#pragma once
+#include "globals.hpp"
+#include "resolver.hpp"
 #include "animations.hpp"
-
-constexpr int CACHE_SIZE = 2;
-constexpr int YAW_CACHE_SIZE = 8;
-constexpr auto MAX_TICKS = 3;
-
-struct resolver_info_t
-{
-	bool resolved{};
-	int side{};
-
-	int legit_ticks{};
-	int fake_ticks{};
-
-	INLINE void add_legit_ticks()
-	{
-		if (legit_ticks < MAX_TICKS)
-			++legit_ticks;
-		else
-			fake_ticks = 0;
-	}
-
-	INLINE void add_fake_ticks()
-	{
-		if (fake_ticks < MAX_TICKS)
-			++fake_ticks;
-		else
-			legit_ticks = 0;
-	}
-
-	INLINE bool is_legit()
-	{
-		return legit_ticks > fake_ticks;
-	}
-
-	std::string mode{};
-	c_animation_layers initial_layers[13]{};
-
-	struct jitter_info_t
-	{
-		bool is_jitter{};
-
-		float delta_cache[CACHE_SIZE]{};
-		int cache_offset{};
-
-		float yaw_cache[YAW_CACHE_SIZE]{};
-		int yaw_cache_offset{};
-
-		int jitter_ticks{};
-		int static_ticks{};
-
-		int jitter_tick{};
-
-		__forceinline void reset()
-		{
-			is_jitter = false;
-
-			cache_offset = 0;
-			yaw_cache_offset = 0;
-
-			jitter_ticks = 0;
-			static_ticks = 0;
-
-			jitter_tick = 0;
-
-			std::memset(delta_cache, 0, sizeof(delta_cache));
-			std::memset(yaw_cache, 0, sizeof(yaw_cache));
-		}
-	} jitter;
-
-	struct freestanding_t
-	{
-		bool updated{};
-		int side{};
-		float update_time{};
-
-		inline void reset()
-		{
-			updated = false;
-			side = 0;
-			update_time = 0.f;
-		}
-	} freestanding{};
-
-#ifdef LEGACY
-	int lby_breaker{};
-	int lby_update{};
-
-	struct move_t
-	{
-		float time{};
-		float lby{};
-
-		inline void reset()
-		{
-			time = 0.f;
-			lby = 0.f;
-		}
-	} move{};
-
-	struct lby_flicks_t
-	{
-		bool lby_breaker_failed = false;
-
-		float last_lby_value = 0.0f;
-		float next_lby_update = 0.0f;
-
-		int logged_lby_delta_score = 0;
-		float logged_lby_delta = 0.0f;
-
-		c_animation_layers old_layers[13]{};
-
-		inline void reset()
-		{
-			lby_breaker_failed = false;
-			last_lby_value = 0.f;
-			next_lby_update = 0.f;
-
-			logged_lby_delta_score = 0;
-			logged_lby_delta = 0.f;
-
-			for (auto& i : old_layers)
-				i = {};
-		}
-	} lby{};
-#endif
-
-	anim_record_t record{};
-
-	inline void reset()
-	{
-		resolved = false;
-		side = 0;
-		legit_ticks = 0;
-		fake_ticks = 0;
-
-		mode = "";
-
-		freestanding.reset();
-		jitter.reset();
-
-#ifdef LEGACY
-		lby_breaker = 0;
-		lby_update = 0;
-		lby.reset();
-		move.reset();
-		record.reset();
-#endif
-
-		for (auto& i : initial_layers)
-			i = {};
-	}
-};
-
-inline resolver_info_t resolver_info[65]{};
+#include "server_bones.hpp"
+#include "ragebot.hpp"
 
 namespace resolver
 {
-	INLINE void reset()
+	void pitch_resolve(c_cs_player* player, anim_record_t* record)
 	{
-		for (auto& i : resolver_info)
-			i.reset();
+		const int idx = player->index();
+		auto& info = resolver_info[idx];
+
+		const bool can_fake = (record->choke > 0) || !player->flags().has(FL_ONGROUND);
+
+		if ((info.pitch_cycle % 2) && can_fake)
+			record->eye_angles.x = -record->eye_angles.x;
+
+		++info.pitch_cycle;
 	}
 
-	extern void prepare_side(c_cs_player* player, anim_record_t* current, anim_record_t* last);
-	extern void apply_side(c_cs_player* player, anim_record_t* current, int choke);
+	inline void detect_jitter(c_cs_player* player, resolver_info_t& resolver_info, anim_record_t* current)
+	{
+		auto& jitter = resolver_info.jitter;
+		jitter.yaw_cache[jitter.yaw_cache_offset % YAW_CACHE_SIZE] = current->eye_angles.y;
+
+		if (jitter.yaw_cache_offset >= YAW_CACHE_SIZE + 1)
+			jitter.yaw_cache_offset = 0;
+		else
+			jitter.yaw_cache_offset++;
+
+		for (int i = 0; i < YAW_CACHE_SIZE - 1; ++i)
+		{
+			float diff = std::fabsf(jitter.yaw_cache[i] - jitter.yaw_cache[i + 1]);
+			if (diff <= 0.f)
+			{
+				if (jitter.static_ticks < 3)
+					jitter.static_ticks++;
+				else
+					jitter.jitter_ticks = 0;
+			}
+			else if (diff >= 10.f)
+			{
+				if (jitter.jitter_ticks < 3)
+					jitter.jitter_ticks++;
+				else
+					jitter.static_ticks = 0;
+			}
+		}
+
+		jitter.is_jitter = jitter.jitter_ticks > jitter.static_ticks;
+	}
+
+	inline void prepare_side(c_cs_player* player, anim_record_t* current, anim_record_t* last)
+	{
+		auto& info = resolver_info[player->index()];
+		if (!HACKS->weapon_info || !HACKS->local || !HACKS->local->is_alive() || player->is_bot() || !g_cfg.rage.resolver)
+		{
+			if (info.resolved)
+				info.reset();
+
+			return;
+		}
+
+		auto state = player->animstate();
+		if (!state)
+		{
+			if (info.resolved)
+				info.reset();
+
+			return;
+		}
+
+		auto hdr = player->get_studio_hdr();
+		if (!hdr)
+			return;
+
+		if (current->choke < 2)
+			info.add_legit_ticks();
+		else
+			info.add_fake_ticks();
+
+		if (info.is_legit())
+		{
+			info.resolved = false;
+			info.mode = XOR("no fake");
+			return;
+		}
+
+		detect_jitter(player, info, current);
+		auto& jitter = info.jitter;
+		if (jitter.is_jitter)
+		{
+			auto& misses = RAGEBOT->missed_shots[player->index()];
+			if (misses > 0)
+				info.side = 1337;
+			else
+			{
+				float first_angle = math::normalize_yaw(jitter.yaw_cache[YAW_CACHE_SIZE - 1]);
+				float second_angle = math::normalize_yaw(jitter.yaw_cache[YAW_CACHE_SIZE - 2]);
+
+				float _first_angle = std::sin(DEG2RAD(first_angle));
+				float _second_angle = std::sin(DEG2RAD(second_angle));
+
+				float __first_angle = std::cos(DEG2RAD(first_angle));
+				float __second_angle = std::cos(DEG2RAD(second_angle));
+
+				float avg_yaw = math::normalize_yaw(RAD2DEG(std::atan2f((_first_angle + _second_angle) / 2.f, (__first_angle + __second_angle) / 2.f)));
+				float diff = math::normalize_yaw(current->eye_angles.y - avg_yaw);
+
+				info.side = diff > 0.f ? -1 : 1;
+			}
+
+			info.resolved = true;
+			info.mode = XOR("jitter");
+		}
+		else
+		{
+			auto& misses = RAGEBOT->missed_shots[player->index()];
+			if (misses > 0)
+			{
+				switch (misses % 3)
+				{
+				case 1:
+					info.side = -1;
+					break;
+				case 2:
+					info.side = 1;
+					break;
+				case 0:
+					info.side = 0;
+					break;
+				}
+
+				info.resolved = true;
+				info.mode = XOR("brute");
+			}
+			else
+			{
+				info.side = 0;
+				info.mode = XOR("static");
+
+				info.resolved = true;
+			}
+		}
+	}
+
+	inline void apply_side(c_cs_player* player, anim_record_t* current, int choke)
+	{
+		auto& info = resolver_info[player->index()];
+		if (!HACKS->weapon_info || !HACKS->local || !HACKS->local->is_alive() || !info.resolved || info.side == 1337 || player->is_teammate(false))
+			return;
+
+		auto state = player->animstate();
+		if (!state)
+			return;
+
+		float desync_angle = choke < 2 ? state->get_max_rotation() : 120.f;
+		state->abs_yaw = math::normalize_yaw(player->eye_angles().y + desync_angle * info.side);
+
+		if (RAGEBOT->missed_shots[player->index()] == 0)
+			resolver::pitch_resolve(player, current);
+	}
 }
