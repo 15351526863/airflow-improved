@@ -11,6 +11,9 @@ namespace resolver
 		const int idx = player->index();
 		auto& info = resolver_info[idx];
 
+		if (record && record->shooting)
+			return;
+
 		const bool can_fake = (record->choke > 0) || !player->flags().has(FL_ONGROUND);
 
 		if ((info.pitch_cycle % 2) && can_fake)
@@ -51,9 +54,62 @@ namespace resolver
 		jitter.is_jitter = jitter.jitter_ticks > jitter.static_ticks;
 	}
 
+
+	void jitter_resolve(c_cs_player* player, anim_record_t* current)
+	{
+		if (!player || !current)
+			return;
+
+		const auto bone_index = player->lookup_bone(CXOR("head_0"));
+		auto state = player->animstate();
+		if (!state)
+			return;
+
+		if (bone_index == -1)
+		{  // as fallback
+			const auto max_rotation = state->get_max_rotation();
+			const auto left_yaw = math::normalize_yaw(current->eye_angles.y + max_rotation * -1.f);
+			const auto right_yaw = math::normalize_yaw(current->eye_angles.y + max_rotation);
+
+			current->jitter_diff = std::max(
+				math::angle_diff(current->eye_angles.y, left_yaw),
+				math::angle_diff(current->eye_angles.y, right_yaw)
+			);
+		}
+		else
+		{ // proper
+			const auto& center_bones = current->matrix_zero.matrix;
+			const auto yaw_center = std::remainder(
+				RAD2DEG(std::atan2(
+					center_bones[bone_index].mat[1][3] - current->origin.y,
+					center_bones[bone_index].mat[0][3] - current->origin.x
+				)),
+				360.f);
+
+			const auto& left_bones = current->matrix_left.matrix;
+			const auto yaw_left = std::remainder(
+				RAD2DEG(std::atan2(
+					left_bones[bone_index].mat[1][3] - current->origin.y,
+					left_bones[bone_index].mat[0][3] - current->origin.x
+				)),
+				360.f);
+
+			const auto& right_bones = current->matrix_right.matrix;
+			const auto yaw_right = std::remainder(
+				RAD2DEG(std::atan2(
+					right_bones[bone_index].mat[1][3] - current->origin.y,
+					right_bones[bone_index].mat[0][3] - current->origin.x
+				)),
+				360.f);
+
+			current->jitter_diff = std::max(std::fabs(yaw_left - yaw_center), std::fabs(yaw_right - yaw_center));
+		}
+	}
+
 	inline void prepare_side(c_cs_player* player, anim_record_t* current, anim_record_t* last)
 	{
 		auto& info = resolver_info[player->index()];
+
 		if (!HACKS->weapon_info || !HACKS->local || !HACKS->local->is_alive() || player->is_bot() || !g_cfg.rage.resolver)
 		{
 			if (info.resolved)
@@ -88,7 +144,9 @@ namespace resolver
 		}
 
 		detect_jitter(player, info, current);
+
 		auto& jitter = info.jitter;
+
 		if (jitter.is_jitter)
 		{
 			auto& misses = RAGEBOT->missed_shots[player->index()];
@@ -96,19 +154,7 @@ namespace resolver
 				info.side = 1337;
 			else
 			{
-				float first_angle = math::normalize_yaw(jitter.yaw_cache[YAW_CACHE_SIZE - 1]);
-				float second_angle = math::normalize_yaw(jitter.yaw_cache[YAW_CACHE_SIZE - 2]);
-
-				float _first_angle = std::sin(DEG2RAD(first_angle));
-				float _second_angle = std::sin(DEG2RAD(second_angle));
-
-				float __first_angle = std::cos(DEG2RAD(first_angle));
-				float __second_angle = std::cos(DEG2RAD(second_angle));
-
-				float avg_yaw = math::normalize_yaw(RAD2DEG(std::atan2f((_first_angle + _second_angle) / 2.f, (__first_angle + __second_angle) / 2.f)));
-				float diff = math::normalize_yaw(current->eye_angles.y - avg_yaw);
-
-				info.side = diff > 0.f ? -1 : 1;
+				jitter_resolve(player, current);
 			}
 
 			info.resolved = true;
