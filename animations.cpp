@@ -291,8 +291,8 @@ static INLINE void update_sides(bool should_update, c_cs_player* player, anims_t
 		{
 #ifdef LEGACY
 			resolver::apply_side(player, new_record, new_record->choke);
-			resolver::prepare_bones_with_resolver(player, new_record);
 			player->eye_angles() = new_record->eye_angles;
+
 			player->set_abs_origin(player->origin());
 			player->abs_velocity() = player->velocity() = new_record->velocity;
 			player->force_update_animations(anim);
@@ -318,9 +318,8 @@ static INLINE void update_sides(bool should_update, c_cs_player* player, anims_t
 			if (side != 1337)
 				state->abs_yaw = math::normalize_yaw(new_record->eye_angles.y + state->get_max_rotation() * side);
 			else
-				resolver::apply_side(player, new_record, new_record->choke);
+				resolver::apply(player, new_record, new_record->choke);
 
-			resolver::prepare_bones_with_resolver(player, new_record);
 			player->set_abs_origin(player->origin());
 			player->abs_velocity() = player->velocity() = new_record->velocity;
 			player->force_update_animations(anim);
@@ -344,7 +343,6 @@ static INLINE void update_sides(bool should_update, c_cs_player* player, anims_t
 			player->set_abs_origin(player->origin());
 
 			resolver::apply_side(player, new_record, new_record->choke);
-			resolver::prepare_bones_with_resolver(player, new_record);
 			player->eye_angles() = new_record->eye_angles;
 
 			auto anim_time = new_record->old_sim_time + HACKS->global_vars->interval_per_tick;
@@ -465,9 +463,8 @@ static INLINE void update_sides(bool should_update, c_cs_player* player, anims_t
 				if (side != 1337)
 					state->abs_yaw = math::normalize_yaw(player->eye_angles().y + max_rotation * side);
 				else
-					resolver::apply_side(player, new_record, new_record->choke);
+					resolver::apply(player, new_record, new_record->choke);
 
-				resolver::prepare_bones_with_resolver(player, new_record);
 				player->force_update_animations(anim);
 			}
 #endif
@@ -645,8 +642,10 @@ void thread_collect_info(c_cs_player* player)
 		}
 #endif
 
+		resolver::jitter_resolve(player, &new_record);
 		update_sides(should_update, player, anim, &new_record, last_record, 1337, hdr, bone_flags_base, bone_parent_count);
 	}
+
 
 	if (!HACKS->cl_lagcomp0)
 	{
