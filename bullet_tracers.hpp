@@ -15,19 +15,19 @@ struct client_verify_t
 
 struct hitmarker_t
 {
-        int dmg{};
-        int hp{};
-        bool headshot{};
+	int dmg{};
+	int hp{};
+	bool headshot{};
 
-        float time{};
-        float dmg_time{};
+	float time{};
+	float dmg_time{};
 	float alpha{};
 	float impact_time{};
 
 	vec3_t pos{};
 };
 
-class c_bullet_tracers 
+class c_bullet_tracers
 {
 private:
 	int last_impact_size{};
