@@ -112,50 +112,50 @@ INLINE void play_sound_from_memory(uint8_t* bytes, size_t size, float volume)
 		modify_volume_sound((char*)stored_bytes, size, volume);
 	}
 
-PlaySoundA((char*)stored_bytes, NULL, SND_ASYNC | SND_MEMORY);
+	PlaySoundA((char*)stored_bytes, NULL, SND_ASYNC | SND_MEMORY);
 }
 
 static void draw_text_scaled(float x, float y, float scale, c_color color, memory::bits_t flags, c_d3dfont* font, const std::string& text)
 {
-        auto draw_list = RENDER->get_draw_list();
-        auto font_base = font->get();
-        float font_size = font->get_size() * scale;
-        const char* str = text.c_str();
+	auto draw_list = RENDER->get_draw_list();
+	auto font_base = font->get();
+	float font_size = font->get_size() * scale;
+	const char* str = text.c_str();
 
-        draw_list->PushTextureID(font_base->ContainerAtlas->TexID);
+	draw_list->PushTextureID(font_base->ContainerAtlas->TexID);
 
-        ImVec2 text_size = font_base->CalcTextSizeA(font_size, FLT_MAX, -1.f, str, nullptr, nullptr);
-        text_size.x = IM_FLOOR(text_size.x + 0.99999f);
+	ImVec2 text_size = font_base->CalcTextSizeA(font_size, FLT_MAX, -1.f, str, nullptr, nullptr);
+	text_size.x = IM_FLOOR(text_size.x + 0.99999f);
 
-        if (!(flags.has(FONT_CENTERED_X)))
-                text_size.x = 0.f;
-        if (!(flags.has(FONT_CENTERED_Y)))
-                text_size.y = 0.f;
+	if (!(flags.has(FONT_CENTERED_X)))
+		text_size.x = 0.f;
+	if (!(flags.has(FONT_CENTERED_Y)))
+		text_size.y = 0.f;
 
-        ImVec2 pos(x - text_size.x * 0.5f, y - text_size.y * 0.5f);
+	ImVec2 pos(x - text_size.x * 0.5f, y - text_size.y * 0.5f);
 
-        float back_scale = flags.has(FONT_LIGHT_BACK) ? 0.3f : 1.f;
-        auto outline = c_color(0, 0, 0, static_cast<int>(color.a() * back_scale));
+	float back_scale = flags.has(FONT_LIGHT_BACK) ? 0.3f : 1.f;
+	auto outline = c_color(0, 0, 0, static_cast<int>(color.a() * back_scale));
 
-        if (flags.has(FONT_DROPSHADOW))
-                draw_list->AddText(font_base, font_size, ImVec2(pos.x + 1, pos.y + 1), outline.as_imcolor(), str);
+	if (flags.has(FONT_DROPSHADOW))
+		draw_list->AddText(font_base, font_size, ImVec2(pos.x + 1, pos.y + 1), outline.as_imcolor(), str);
 
-        if (flags.has(FONT_OUTLINE))
-        {
-                draw_list->AddText(font_base, font_size, ImVec2(pos.x + 1, pos.y - 1), outline.as_imcolor(), str);
-                draw_list->AddText(font_base, font_size, ImVec2(pos.x - 1, pos.y + 1), outline.as_imcolor(), str);
-                draw_list->AddText(font_base, font_size, ImVec2(pos.x - 1, pos.y - 1), outline.as_imcolor(), str);
-                draw_list->AddText(font_base, font_size, ImVec2(pos.x + 1, pos.y + 1), outline.as_imcolor(), str);
+	if (flags.has(FONT_OUTLINE))
+	{
+		draw_list->AddText(font_base, font_size, ImVec2(pos.x + 1, pos.y - 1), outline.as_imcolor(), str);
+		draw_list->AddText(font_base, font_size, ImVec2(pos.x - 1, pos.y + 1), outline.as_imcolor(), str);
+		draw_list->AddText(font_base, font_size, ImVec2(pos.x - 1, pos.y - 1), outline.as_imcolor(), str);
+		draw_list->AddText(font_base, font_size, ImVec2(pos.x + 1, pos.y + 1), outline.as_imcolor(), str);
 
-                draw_list->AddText(font_base, font_size, ImVec2(pos.x, pos.y + 1), outline.as_imcolor(), str);
-                draw_list->AddText(font_base, font_size, ImVec2(pos.x, pos.y - 1), outline.as_imcolor(), str);
-                draw_list->AddText(font_base, font_size, ImVec2(pos.x + 1, pos.y), outline.as_imcolor(), str);
-                draw_list->AddText(font_base, font_size, ImVec2(pos.x - 1, pos.y), outline.as_imcolor(), str);
-        }
+		draw_list->AddText(font_base, font_size, ImVec2(pos.x, pos.y + 1), outline.as_imcolor(), str);
+		draw_list->AddText(font_base, font_size, ImVec2(pos.x, pos.y - 1), outline.as_imcolor(), str);
+		draw_list->AddText(font_base, font_size, ImVec2(pos.x + 1, pos.y), outline.as_imcolor(), str);
+		draw_list->AddText(font_base, font_size, ImVec2(pos.x - 1, pos.y), outline.as_imcolor(), str);
+	}
 
-        draw_list->AddText(font_base, font_size, pos, color.as_imcolor(), str);
+	draw_list->AddText(font_base, font_size, pos, color.as_imcolor(), str);
 
-        draw_list->PopTextureID();
+	draw_list->PopTextureID();
 }
 
 void c_bullet_tracers::on_player_hurt(c_game_event* event)
@@ -184,15 +184,15 @@ void c_bullet_tracers::on_player_hurt(c_game_event* event)
 	if (g_cfg.misc.sound != 0)
 	{
 		auto play_custom_sound = [&]()
-		{
-			if (g_cfg.misc.sound == 1)
-				return false;
+			{
+				if (g_cfg.misc.sound == 1)
+					return false;
 
-			if (!main_utils::file_exist(new_dir.c_str()))
-				return false;
+				if (!main_utils::file_exist(new_dir.c_str()))
+					return false;
 
-			return true;
-		};
+				return true;
+			};
 
 		if (play_custom_sound())
 		{
@@ -246,14 +246,14 @@ void c_bullet_tracers::on_player_hurt(c_game_event* event)
 	if (best_impact_distance == -1)
 		return;
 
-        auto& hit = hitmarkers.emplace_back();
-        hit.dmg = event->get_int(CXOR("dmg_health"));
-        hit.time = time;
-        hit.dmg_time = time;
-        hit.alpha = 1.f;
-        hit.pos = best_impact.pos;
-        hit.hp = player->health();
-        hit.headshot = event->get_int(CXOR("hitgroup")) == HITGROUP_HEAD;
+	auto& hit = hitmarkers.emplace_back();
+	hit.dmg = event->get_int(CXOR("dmg_health"));
+	hit.time = time;
+	hit.dmg_time = time;
+	hit.alpha = 1.f;
+	hit.pos = best_impact.pos;
+	hit.hp = player->health();
+	hit.headshot = event->get_int(CXOR("hitgroup")) == HITGROUP_HEAD;
 }
 
 void c_bullet_tracers::on_bullet_impact(c_game_event* event)
@@ -320,7 +320,7 @@ void c_bullet_tracers::render_tracers()
 		const auto& size = g_cfg.misc.impact_size * 0.1f;
 		for (auto i = impact_list.count(); i > last_impact_size; i--)
 		{
-			HACKS->debug_overlay->add_box_overlay(impact_list[i - 1].pos, 
+			HACKS->debug_overlay->add_box_overlay(impact_list[i - 1].pos,
 				{ -size, -size, -size },
 				{ size, size, size },
 				{ 0, 0, 0 },
@@ -385,28 +385,28 @@ void c_bullet_tracers::render_hitmarkers()
 
 	draw_list->Flags &= ~ImDrawListFlags_AntiAliasedLines;
 
-        float screen_alpha = 0.f;
-        for (int i = 0; i < hitmarkers.size(); ++i)
-        {
-                auto& hit = hitmarkers[i];
-                if (hit.time == 0.f || hit.dmg <= 0)
-                {
-                        screen_alpha = 0.f;
-                        continue;
-                }
-                float elapsed = HACKS->system_time() - hit.time;
-                float diff = std::clamp(elapsed / DAMAGE_DISPLAY_TIME, 0.f, 1.f);
-                if (elapsed >= DAMAGE_DISPLAY_TIME)
-                {
-                        hit.alpha = std::lerp(hit.alpha, 0.f, RENDER->get_animation_speed() * 1.5f);
-                        if (hit.alpha <= 0.f)
-                        {
-                                screen_alpha = 0.f;
+	float screen_alpha = 0.f;
+	for (int i = 0; i < hitmarkers.size(); ++i)
+	{
+		auto& hit = hitmarkers[i];
+		if (hit.time == 0.f || hit.dmg <= 0)
+		{
+			screen_alpha = 0.f;
+			continue;
+		}
+		float elapsed = HACKS->system_time() - hit.time;
+		float diff = std::clamp(elapsed / DAMAGE_DISPLAY_TIME, 0.f, 1.f);
+		if (elapsed >= DAMAGE_DISPLAY_TIME)
+		{
+			hit.alpha = std::lerp(hit.alpha, 0.f, RENDER->get_animation_speed() * 1.5f);
+			if (hit.alpha <= 0.f)
+			{
+				screen_alpha = 0.f;
 
-                                hitmarkers.erase(hitmarkers.begin() + i);
-                                continue;
-                        }
-                }
+				hitmarkers.erase(hitmarkers.begin() + i);
+				continue;
+			}
+		}
 
 		if (hit.alpha > 0.f)
 		{
@@ -425,23 +425,23 @@ void c_bullet_tracers::render_hitmarkers()
 					RENDER->line(position.x + 2, position.y - 2, position.x + 8, position.y - 8, clr.new_alpha(255.f * hit.alpha), 1.f);
 				}
 
-                                if (g_cfg.misc.damage)
-                                {
-                                        auto clr = hit.headshot ? HEADSHOT_COLOR : g_cfg.misc.damage_clr.base();
+				if (g_cfg.misc.damage)
+				{
+					auto clr = hit.headshot ? HEADSHOT_COLOR : g_cfg.misc.damage_clr.base();
 
-                                        float rise = DAMAGE_RISE_HEIGHT * diff;
-                                        float scale = DAMAGE_START_SCALE - (DAMAGE_START_SCALE - 1.f) * diff;
+					float rise = DAMAGE_RISE_HEIGHT * diff;
+					float scale = DAMAGE_START_SCALE - (DAMAGE_START_SCALE - 1.f) * diff;
 
-                                        draw_text_scaled(position.x, position.y - 30.f - rise,
-                                                scale,
-                                                clr.new_alpha((int)(255.f * hit.alpha)),
-                                                FONT_CENTERED_X | FONT_DROPSHADOW | FONT_LIGHT_BACK,
-                                                &RENDER->fonts.dmg,
-                                                tfm::format(CXOR("%d"), hit.dmg));
-                                }
-                        }
-                }
-        }
+					draw_text_scaled(position.x, position.y - 30.f - rise,
+						scale,
+						clr.new_alpha((int)(255.f * hit.alpha)),
+						FONT_CENTERED_X | FONT_DROPSHADOW | FONT_LIGHT_BACK,
+						&RENDER->fonts.dmg,
+						tfm::format(CXOR("%d"), hit.dmg));
+				}
+			}
+		}
+	}
 
 	if (screen_alpha && (g_cfg.misc.hitmarker & 2))
 	{
