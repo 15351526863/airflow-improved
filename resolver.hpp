@@ -165,6 +165,8 @@ namespace resolver
 			i.reset();
 	}
 
+	extern void jitter_resolve(c_cs_player* player, anim_record_t* current);
 	extern void prepare_side(c_cs_player* player, anim_record_t* current, anim_record_t* last);
-	extern void apply_side(c_cs_player* player, anim_record_t* current, int choke);
+	extern void apply(c_cs_player* player, anim_record_t* current, int choke);
+	int brute_force(c_cs_player* player, resolver_info_t& info, int misses);
 }
