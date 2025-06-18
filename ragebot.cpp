@@ -1657,11 +1657,14 @@ void c_ragebot::player_hurt(c_game_event* event)
 	if (HACKS->engine->get_player_for_user_id(event->get_int(CXOR("attacker"))) != HACKS->engine->get_local_player())
 		return;
 
-	if (!shots.empty())
-	{
-		auto& shot = shots.front();
-		shots.erase(shots.begin());
-	}
+        if (!shots.empty())
+        {
+                auto& shot = shots.front();
+                std::vector<double> input{ shot.resolver.jitter.last_input[0], shot.resolver.jitter.last_input[1] };
+                resolver::train_lstm(input, 1.0);
+                resolver::save_lstm_weights();
+                shots.erase(shots.begin());
+        }
 }
 
 void c_ragebot::round_start(c_game_event* event)
@@ -1741,11 +1744,14 @@ void c_ragebot::proceed_misses()
 					{
 						if (shot.record.extrapolated)
 							EVENT_LOGS->push_message(XOR("Missed shot due to extrapolation failure"));
-						else if (resolver_info.resolved)
-						{
-							missed_shots[shot.index]++;
-							EVENT_LOGS->push_message(XOR("Missed shot due to resolver"));
-						}
+                                                else if (resolver_info.resolved)
+                                                {
+                                                        missed_shots[shot.index]++;
+                                                        EVENT_LOGS->push_message(XOR("Missed shot due to resolver"));
+                                                        std::vector<double> input{ shot.resolver.jitter.last_input[0], shot.resolver.jitter.last_input[1] };
+                                                        resolver::train_lstm(input, 0.0);
+                                                        resolver::save_lstm_weights();
+                                                }
 						else
 							EVENT_LOGS->push_message(XOR("Missed shot due to ?"));
 					}

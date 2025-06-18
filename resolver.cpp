@@ -4,7 +4,9 @@
 #include "server_bones.hpp"
 #include "ragebot.hpp"
 #include "penetration.hpp"
+#include "LSTM.hpp"
 #include <array>
+#include <filesystem>
 #include <cfloat>
 #include <cstdlib>
 #include <ctime>
@@ -55,11 +57,36 @@ namespace
 		}
 	};
 
-	ContextualBandit g_bandit;
-	bool g_seeded = ([]() {
-		std::srand(static_cast<unsigned>(std::time(nullptr)));
-		return true;
-		})();
+        ContextualBandit g_bandit;
+        LSTM g_jitter_lstm{};
+        bool g_seeded = ([]() {
+                std::srand(static_cast<unsigned>(std::time(nullptr)));
+                return true;
+                })();
+        bool g_lstm_loaded = ([]() {
+                resolver::load_lstm_weights();
+                return true;
+                })();
+}
+
+namespace resolver
+{
+        void save_lstm_weights()
+        {
+                std::filesystem::create_directories("airflow/models");
+                g_jitter_lstm.save("airflow/models/jitter_lstm.bin");
+        }
+
+        void load_lstm_weights()
+        {
+                std::filesystem::create_directories("airflow/models");
+                g_jitter_lstm.load("airflow/models/jitter_lstm.bin");
+        }
+
+        void train_lstm(const std::vector<double>& input, double target)
+        {
+                g_jitter_lstm.train(input, target);
+        }
 }
 
 namespace resolver
@@ -113,80 +140,38 @@ namespace resolver
 		jitter.is_jitter = jitter.jitter_ticks > jitter.static_ticks;
 	}
 
-	static bool static_jitter(c_cs_player* player)
-	{
-		const int idx = player->index();
-		auto& jit = resolver_info[idx].jitter;
 
-		if (jit.yaw_cache_offset < YAW_CACHE_SIZE)
-			return false;
+        inline int jitter_fix(c_cs_player* player, anim_record_t* current)
+        {
+                if (!player || !current)
+                        return 0;
 
-		float min_yaw = 180.f;
-		float max_yaw = -180.f;
+                const int idx = player->index();
+                auto& info = resolver_info[idx];
+                auto      anim = ANIMFIX->get_anims(idx);
 
-		for (int i = 0; i < YAW_CACHE_SIZE; ++i)
-		{
-			const float yaw = math::normalize_yaw(jit.yaw_cache[i]);
+                if (!anim || anim->records.size() < 2)
+                        return 0;
 
-			if (yaw < min_yaw) min_yaw = yaw;
-			if (yaw > max_yaw) max_yaw = yaw;
-		}
+                auto& prev = anim->records[1];
+                auto& jit = info.jitter;
 
-		float span = math::normalize_yaw(max_yaw - min_yaw);
-		span = span < 0.f ? -span : span;          
+                const double eye_delta = math::normalize_yaw(current->eye_angles.y - prev.eye_angles.y);
+                const double abs_delta = std::fabs(eye_delta);
 
-		return span <= JITTER_BEGIN_ANGLE;
-	}
+                jit.delta_cache[jit.cache_offset % CACHE_SIZE] = abs_delta;
+                ++jit.cache_offset;
 
-	inline int jitter_fix(c_cs_player* player, anim_record_t* current)
-	{
-		if (!player || !current)
-			return 0;
+                std::vector<double> input{ eye_delta, abs_delta };
+                jit.last_input[0] = eye_delta;
+                jit.last_input[1] = abs_delta;
 
-		const int idx = player->index();
-		auto& info = resolver_info[idx];
-		auto      anim = ANIMFIX->get_anims(idx);
+                double out = g_jitter_lstm.forward(input);
+                int side = out >= 0.5 ? 1 : -1;
 
-		if (!anim || anim->records.size() < 2)
-			return 0;
-
-		auto& prev = anim->records[1];
-		auto& jit = info.jitter;
-
-		if (current->eye_angles.x < 45.f)
-		{
-			++jit.static_ticks;
-			jit.jitter_ticks = 0;
-			return 0;
-		}
-
-		const float eye_delta = math::normalize_yaw(current->eye_angles.y - prev.eye_angles.y);
-		const float abs_delta = std::fabs(eye_delta);
-
-		jit.delta_cache[jit.cache_offset % CACHE_SIZE] = abs_delta;
-		++jit.cache_offset;
-
-		if (abs_delta <= JITTER_BEGIN_ANGLE)
-		{
-			++jit.static_ticks;
-			jit.jitter_ticks = 0;
-		}
-		else
-		{
-			++jit.jitter_ticks;
-			jit.static_ticks = 0;
-		}
-
-		if (jit.static_ticks > YAW_CACHE_SIZE || !static_jitter(player))
-			return 0;
-
-		const int inner_side = eye_delta > 0.f ? -1 : 1;
-
-		const int side = (RAGEBOT->missed_shots[idx] % 2 == 0) ? inner_side : -inner_side;
-
-		info.side = side;
-		return side;
-	}
+                info.side = side;
+                return side;
+        }
 
 	inline int brute_force(c_cs_player* player, resolver_info_t& info, int misses)
 	{
