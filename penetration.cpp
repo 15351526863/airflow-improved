@@ -114,36 +114,36 @@ namespace penetration
 		float smallest_fraction = tr->fraction;
 
 		LISTENER_ENTITY->for_each_player([&](c_cs_player* player)
-		{
-			if (!player || player == HACKS->local)
-				return;
-
-			if (player->dormant() || !player->is_alive())
-				return;
-
-			if (should_hit && !should_hit(player, mask))
-				return;
-
-			auto collideable = player->get_collideable();
-			if (!collideable)
-				return;
-
-			auto obb_center = (collideable->get_mins() + collideable->get_maxs()) / 2.f;
-			auto position = obb_center + player->origin();
-			float range = distance_to_ray(position, start, end);
-
-			if (range < 0.f || range > 60.f)
-				return;
-
-			c_game_trace trace;
-			HACKS->engine_trace->clip_ray_to_entity(ray_t(start, end), mask, player, &trace);
-
-			if (trace.fraction < smallest_fraction)
 			{
-				*tr = trace;
-				smallest_fraction = trace.fraction;
-			}
-		}, false);
+				if (!player || player == HACKS->local)
+					return;
+
+				if (player->dormant() || !player->is_alive())
+					return;
+
+				if (should_hit && !should_hit(player, mask))
+					return;
+
+				auto collideable = player->get_collideable();
+				if (!collideable)
+					return;
+
+				auto obb_center = (collideable->get_mins() + collideable->get_maxs()) / 2.f;
+				auto position = obb_center + player->origin();
+				float range = distance_to_ray(position, start, end);
+
+				if (range < 0.f || range > 60.f)
+					return;
+
+				c_game_trace trace;
+				HACKS->engine_trace->clip_ray_to_entity(ray_t(start, end), mask, player, &trace);
+
+				if (trace.fraction < smallest_fraction)
+				{
+					*tr = trace;
+					smallest_fraction = trace.fraction;
+				}
+			}, false);
 	}
 
 	INLINE void clip_trace_to_player(const vec3_t start, const vec3_t& end, unsigned int mask, i_trace_filter* filter, c_game_trace* tr, c_cs_player* player, should_hit_fn should_hit)
@@ -167,29 +167,6 @@ namespace penetration
 
 		if (tr->fraction > trace.fraction)
 			*tr = trace;
-	}
-
-	bool trace_to_studio_csgo_hitgroups_priority(ray_t* ray, c_studio_hdr* studio_hdr, mstudiohitboxset_t* set, matrix3x4_t** scan_matrix, int contents_mask, vec3_t* origin, float scale, c_game_trace* trace)
-	{
-		static auto function = offsets::trace_to_studio_csgo_hitgroups_priority.cast<std::uint32_t>();
-		bool rval = true;
-
-		__asm
-		{
-			mov edx, ray
-			push trace
-			push scale
-			push origin
-			push contents_mask
-			push scan_matrix
-			push set
-			push studio_hdr
-			call function
-			add esp, 0x1C
-			mov rval, al
-		}
-
-		return rval;
 	}
 
 	bool trace_to_exit(c_game_trace* enter_trace, vec3_t start, vec3_t direction, c_game_trace* exit_trace, c_cs_player* player)
@@ -392,61 +369,182 @@ namespace penetration
 		int hit_side{};
 	};
 
-	bool test_hitboxes(c_cs_player* player,
-		c_game_trace* trace,
-		const ray_t& ray,
-		matrix3x4_t* matrix /* = nullptr */)
+	bool test_hitboxes(c_cs_player* player, c_game_trace* trace, const ray_t& ray, matrix3x4_t* matrix)
 	{
-		if (!player || !trace)
-			return false;
+		auto bones = matrix != nullptr ? matrix : player->bone_cache().base();
 
+		// reset trace
 		trace->fraction = 1.f;
 		trace->start_solid = false;
 
-		//obtain the render/studio data we need
-		auto studio_hdr = player->get_studio_hdr();                    // c_studio_hdr*
-		auto studio_md = HACKS->model_info->get_studio_model(player->get_model());
-		if (!studio_hdr || !studio_md)
-			return false;
-
-		auto hitbox_set = studio_md->hitbox_set(player->hitbox_set());// mstudiohitboxset_t*
-		if (!hitbox_set)
-			return false;
-
-		matrix3x4_t* bone_array = matrix ? matrix : player->bone_cache().base();
-
-		matrix3x4_t* hitbox_bones[128]{ };
-		for (int i = 0; i < 128; ++i)
-			hitbox_bones[i] = &bone_array[i];
-
-		vec3_t origin = player->get_abs_origin();
-		const float scale = player->model_scale();
-
-		if (trace_to_studio_csgo_hitgroups_priority(const_cast<ray_t*>(&ray),
-			studio_hdr,
-			hitbox_set,
-			hitbox_bones,
-			MASK_SHOT_HULL | CONTENTS_HITBOX,
-			&origin,
-			scale,
-			trace))
+		// init array
+		hit_group_result results[hgt_max]{};
+		for (auto i = 0; i < hgt_max; i++)
 		{
-			// The helper does *not* fill every field we rely on later, so patch-up:
-			if (trace->hitbox >= 0)
-			{
-				auto pbox = hitbox_set->hitbox(trace->hitbox);
-				auto pbone = studio_md->bone(pbox->bone);
-
-				trace->surface.flags = SURF_HITBOX;
-				trace->surface.name = CXOR("**studio**");
-				trace->surface.surface_props = pbone->surface_prop_lookup;
-
-				trace->contents |= (pbone->contents | CONTENTS_HITBOX);
-				trace->plane.dist = trace->end.dot(trace->plane.normal);
-				trace->plane.type = 3;
-			}
-			return true;                                   // fast path succeeded
+			auto& r = results[i];
+			r.hit_group = *trace;
+			r.hitbox = -1;
+			r.hit_side = -1;
 		}
+
+		const auto hdr = HACKS->model_info->get_studio_model(player->get_model());
+		if (!hdr)
+			return false;
+
+		auto new_hdr = player->get_studio_hdr();
+		if (!new_hdr)
+			return false;
+
+		const auto hb_set = hdr->hitbox_set(player->hitbox_set());
+		if (!hb_set)
+			return false;
+
+		const auto scale = player->model_scale();
+
+		auto position = player->get_abs_origin();
+
+		// process hitboxes
+		for (auto i = 0; i < hb_set->num_hitboxes; i++)
+		{
+			const auto hb = hb_set->hitbox(i);
+
+			// skip if bone doesn't match
+			if (!(hdr->bone(hb->bone)->contents & (CONTENTS_SOLID | CONTENTS_HITBOX | CONTENTS_DEBRIS)))
+				continue;
+
+			// determine result
+			auto hg_result = &results[hgt_general];
+			switch (hb->group)
+			{
+			case 1: hg_result = &results[hgt_head]; break;
+			case 3: hg_result = &results[hgt_stomach]; break;
+			case 2: hg_result = &results[hgt_chest]; break;
+			case 4:
+			case 5:
+				hg_result = &results[hgt_arms]; break;
+			case 6:
+			case 7:
+				hg_result = &results[hgt_legs]; break;
+			}
+
+			auto mtx_copy = bones[hb->bone];
+
+			// rotate matrix
+			matrix3x4_t orientation{};
+			orientation.angle_matrix(hb->rotation);
+			mtx_copy.multiply(orientation);
+
+			auto side = -1;
+			if (scale < 1.f - FLT_EPSILON || scale > 1.f + FLT_EPSILON)
+			{
+				// move matrix
+				const auto inv_scale = 1.f / scale;
+				const auto bone_origin = mtx_copy.get_origin();
+
+				auto new_origin = bone_origin - position;
+				new_origin *= inv_scale;
+				new_origin += position;
+
+				mtx_copy.set_origin(new_origin);
+
+				// scale
+				mtx_copy.scale(0, inv_scale);
+				mtx_copy.scale(1, inv_scale);
+				mtx_copy.scale(2, inv_scale);
+
+				// recalculate ray
+				auto new_start = ray.start - position;
+				new_start *= inv_scale;
+				new_start += position;
+
+				const auto delta = ray.delta * inv_scale;
+
+				// clip
+				ray_t new_ray(new_start, new_start + delta);
+
+				HACKS->debug_overlay->add_text_overlay(new_ray.start, 0.1f, "ASDASD");
+
+				side = ClipRayToHitbox(new_ray, hb, mtx_copy, hg_result->hit_group);
+			}
+			else
+				side = ClipRayToHitbox(ray, hb, mtx_copy, hg_result->hit_group);
+
+			// if there was a side, update info
+			if (side >= 0)
+			{
+				hg_result->hitbox = i;
+				hg_result->hit_side = side;
+			}
+		}
+
+		// csgo specific: test for headshot if goes through body
+		auto& r_head = results[hgt_head];
+		if (r_head.hitbox >= 0)
+		{
+			// We have a potential headshot, check if it's penetrating via stomach or chest
+			for (int i = hgt_stomach; i <= hgt_chest; i++)
+			{
+				auto& r = results[i];
+				if (r.hit_group.fraction < r_head.hit_group.fraction)
+				{
+					r_head.hitbox = -1;
+					break;
+				}
+			}
+		}
+
+		auto hitbox = -1;
+		auto hit_side = -1;
+
+		// pick by damage
+		for (auto i = 0; i < hgt_max; i++)
+		{
+			const auto& r = results[i];
+			if (r.hitbox >= 0)
+			{
+				hitbox = r.hitbox;
+				hit_side = r.hit_side;
+				*trace = r.hit_group;
+				break;
+			}
+		}
+
+		// check if we didn't hit anything
+		if (hitbox < 0)
+			return false;
+
+		const auto hb = hb_set->hitbox(hitbox);
+		const auto bone = hdr->bone(hb->bone);
+
+		// write trace data
+		math::vector_multiply(ray.start, trace->fraction, ray.delta, trace->end);
+		trace->hitgroup = hb->group;
+		trace->hitbox = hitbox;
+		trace->contents = bone->contents | CONTENTS_HITBOX;
+		trace->physics_bone = bone->physics_bone;
+		trace->surface.name = CXOR("**studio**");
+		trace->surface.flags = SURF_HITBOX;
+		trace->surface.surface_props = bone->surface_prop_lookup;
+
+		const auto& mtx = bones[hb->bone];
+		if (hit_side >= 3)
+		{
+			hit_side -= 3;
+			trace->plane.normal.x = mtx.mat[0][hit_side];
+			trace->plane.normal.y = mtx.mat[1][hit_side];
+			trace->plane.normal.z = mtx.mat[2][hit_side];
+		}
+		else
+		{
+			trace->plane.normal.x = -mtx.mat[0][hit_side];
+			trace->plane.normal.y = -mtx.mat[1][hit_side];
+			trace->plane.normal.z = -mtx.mat[2][hit_side];
+		}
+
+		trace->plane.dist = trace->end.dot(trace->plane.normal);
+		trace->plane.type = 3;
+
+		return true;
 	}
 
 	bullet_t simulate(c_cs_player* shooter, c_cs_player* target, vec3_t source, const vec3_t& dest, bool ignore_damage, bool simple)
@@ -461,7 +559,7 @@ namespace penetration
 		}
 		else
 		{
-			weapon = (c_base_combat_weapon*)(HACKS->entity_list->get_client_entity_handle(shooter->active_weapon()));
+			weapon = reinterpret_cast<c_base_combat_weapon*>(HACKS->entity_list->get_client_entity_handle(shooter->active_weapon()));
 			if (weapon)
 				weapon_info = HACKS->weapon_system->get_weapon_data(weapon->item_definition_index());
 		}
@@ -469,73 +567,81 @@ namespace penetration
 		if (!weapon || !weapon_info)
 			return {};
 
-		auto direction = dest - source;
-		direction = direction.normalized();
+		vec3_t direction = (dest - source).normalized();
 
 		bullet_t out{};
 		out.penetration_count = simple ? 1 : 4;
 
-		float current_damage = (float)weapon_info->dmg;
-		float current_distance = 0.f;
-		float max_distance = weapon_info->range;
-
-		c_game_trace enter_trace{};
+		float current_damage = static_cast<float>(weapon_info->dmg);
+		float distance_travelled = 0.f;
+		float distance_remaining = weapon_info->range;
+		float penetration_power = weapon_info->penetration;
 
 		c_trace_filter_simple filter(shooter);
+		i_trace_filter* pass_filter = reinterpret_cast<i_trace_filter*>(&filter);
 
-		while (current_damage > 0.f)
+		while (current_damage >= 1.f && out.penetration_count > 0 && distance_remaining > 0.f)
 		{
-			max_distance -= current_distance;
+			vec3_t end = source + direction * distance_remaining;
 
-			auto extended_dest = source + direction * max_distance;
-			auto pass_filter = (i_trace_filter*)&filter;
-
-			HACKS->engine_trace->trace_ray(ray_t(source, extended_dest), MASK_SHOT_PLAYER, pass_filter, &enter_trace);
+			c_game_trace enter_trace{};
+			HACKS->engine_trace->trace_ray(ray_t(source, end), MASK_SHOT_PLAYER, pass_filter, &enter_trace);
 
 			if (target)
-				clip_trace_to_player(source, extended_dest + direction * 40.f, MASK_SHOT_PLAYER, pass_filter, &enter_trace, target, filter.should_hit);
+				clip_trace_to_player(source, end + direction * 40.f, MASK_SHOT_PLAYER, pass_filter, &enter_trace, target, filter.should_hit);
 			else
-				clip_trace_to_players(source, extended_dest + direction * 40.f, MASK_SHOT_PLAYER, pass_filter, &enter_trace, filter.should_hit);
-
-			auto enter_surface_data = HACKS->phys_surface_props->get_surface_data(enter_trace.surface.surface_props);
-			float enter_penetration_modifier = enter_surface_data->game.penetration_modifier;
+				clip_trace_to_players(source, end + direction * 40.f, MASK_SHOT_PLAYER, pass_filter, &enter_trace, filter.should_hit);
 
 			if (enter_trace.fraction == 1.f)
 				break;
 
-			current_distance += enter_trace.fraction * max_distance;
-			current_damage *= std::pow(weapon_info->range_modifier, current_distance / 500.f);
+			float segment_length = enter_trace.fraction * distance_remaining;
+			distance_travelled += segment_length;
+			distance_remaining -= segment_length;
 
-			if (current_distance > 3000.f || enter_penetration_modifier < 0.1f)
+			current_damage *= std::pow(weapon_info->range_modifier, segment_length / 500.f);
+
+			if (ignore_damage)
+				out.damage = static_cast<int>(current_damage);
+
+			auto* enter_surface_data = HACKS->phys_surface_props->get_surface_data(enter_trace.surface.surface_props);
+			float enter_penetration_modifier = enter_surface_data ? enter_surface_data->game.penetration_modifier : 1.f;
+
+			if (distance_travelled > weapon_info->range || enter_penetration_modifier < 0.05f)
 				break;
 
-			if (target && enter_trace.entity)
+			if (enter_trace.entity)
 			{
-				auto player_entity = (c_cs_player*)enter_trace.entity;
-				auto is_player = player_entity->is_player();
-
-				if (player_entity == target || is_player && !player_entity->is_teammate(true, shooter)
-					&& enter_trace.hitgroup != HITGROUP_GENERIC && enter_trace.hitgroup != HITGROUP_GEAR)
+				auto* player_entity = static_cast<c_cs_player*>(enter_trace.entity);
+				if (player_entity && player_entity->is_player())
 				{
-					out.hitbox = enter_trace.hitbox;
-					out.hitgroup = enter_trace.hitgroup;
-					out.traced_target = player_entity;
+					bool valid_target = player_entity == target ||
+						(!player_entity->is_teammate(true, shooter) &&
+							enter_trace.hitgroup != HITGROUP_GENERIC &&
+							enter_trace.hitgroup != HITGROUP_GEAR);
 
-					if (weapon->is_taser())
-						current_damage *= 0.92f;
-					else
-						scale_damage(out.hitgroup, player_entity, weapon_info->armor_ratio, 4.f, current_damage);
+					if (valid_target)
+					{
+						out.hitbox = enter_trace.hitbox;
+						out.hitgroup = enter_trace.hitgroup;
+						out.traced_target = player_entity;
 
-					out.damage = (int)current_damage;
-					return out;
+						if (!ignore_damage)
+						{
+							if (weapon->is_taser())
+								current_damage *= 0.92f;
+							else
+								scale_damage(out.hitgroup, player_entity, weapon_info->armor_ratio, 4.f, current_damage);
+						}
+
+						out.damage = static_cast<int>(current_damage);
+						return out;
+					}
 				}
 			}
 
-			if (handle_bullet_penetration(enter_surface_data, enter_trace, source, direction, weapon_info->penetration, current_damage, shooter, out.penetration_count))
+			if (handle_bullet_penetration(enter_surface_data, enter_trace, source, direction, penetration_power, current_damage, shooter, out.penetration_count))
 				break;
-
-			if (ignore_damage)
-				out.damage = (int)current_damage;
 		}
 
 		return out;
