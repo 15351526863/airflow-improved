@@ -4,10 +4,12 @@
 constexpr int CACHE_SIZE = 2;
 constexpr int YAW_CACHE_SIZE = 8;
 constexpr auto MAX_TICKS = 3;
+constexpr float JITTER_BEGIN_ANGLE = 6.f;
 
 struct resolver_info_t
 {
 	bool resolved{};
+	float resolved_yaw{};
 	int side{};
 	int pitch_cycle{};
 
@@ -84,49 +86,6 @@ struct resolver_info_t
 		}
 	} freestanding{};
 
-#ifdef LEGACY
-	int lby_breaker{};
-	int lby_update{};
-
-	struct move_t
-	{
-		float time{};
-		float lby{};
-
-		inline void reset()
-		{
-			time = 0.f;
-			lby = 0.f;
-		}
-	} move{};
-
-	struct lby_flicks_t
-	{
-		bool lby_breaker_failed = false;
-
-		float last_lby_value = 0.0f;
-		float next_lby_update = 0.0f;
-
-		int logged_lby_delta_score = 0;
-		float logged_lby_delta = 0.0f;
-
-		c_animation_layers old_layers[13]{};
-
-		inline void reset()
-		{
-			lby_breaker_failed = false;
-			last_lby_value = 0.f;
-			next_lby_update = 0.f;
-
-			logged_lby_delta_score = 0;
-			logged_lby_delta = 0.f;
-
-			for (auto& i : old_layers)
-				i = {};
-		}
-	} lby{};
-#endif
-
 	anim_record_t record{};
 
 	inline void reset()
@@ -136,19 +95,12 @@ struct resolver_info_t
 		legit_ticks = 0;
 		fake_ticks = 0;
 		pitch_cycle = 0;
+		resolved_yaw = 0.f;
 
 		mode = "";
 
 		freestanding.reset();
 		jitter.reset();
-
-#ifdef LEGACY
-		lby_breaker = 0;
-		lby_update = 0;
-		lby.reset();
-		move.reset();
-		record.reset();
-#endif
 
 		for (auto& i : initial_layers)
 			i = {};
@@ -165,7 +117,7 @@ namespace resolver
 			i.reset();
 	}
 
-	extern void jitter_resolve(c_cs_player* player, anim_record_t* current);
+	extern int jitter_fix(c_cs_player* player, anim_record_t* current);
 	extern void prepare_side(c_cs_player* player, anim_record_t* current, anim_record_t* last);
 	extern void apply(c_cs_player* player, anim_record_t* current, int choke);
 	int brute_force(c_cs_player* player, resolver_info_t& info, int misses);
