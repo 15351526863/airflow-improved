@@ -3,41 +3,48 @@
 #include "animations.hpp"
 #include "server_bones.hpp"
 #include "ragebot.hpp"
+#include "penetration.hpp"
 #include <array>
 #include <cfloat>
 #include <cstdlib>
 #include <ctime>
+#include <cmath>
 
 namespace
 {
-	constexpr std::array<int, 3> kSideMap{ -1, 0, 1 };
+	constexpr std::array<int, 3> kSideMap{ -1,0,1 };
 
 	struct ArmData
 	{
-		int   pulls = 0;   
-		float value = 0.f; 
+		int   pulls = 0;
+		float value = 0.f;
 	};
 
 	struct ContextualBandit
 	{
-		static constexpr float kEpsilon = 0.10f;   
-		static constexpr int   kContexts = 4;        
-
-		std::array<std::array<ArmData, 3>, kContexts> ctx{}; // θ̂
+		static constexpr int kContexts = 8;
+		std::array<std::array<ArmData, 3>, kContexts> ctx{};
 
 		int select(int c)
 		{
-			if (static_cast<float>(std::rand()) / RAND_MAX < kEpsilon)
-				return std::rand() % 3; 
 			auto& arms = ctx[c];
-			int    best = 0;
-			float  best_val = -FLT_MAX;
-
 			for (int a = 0; a < 3; ++a)
-				if (arms[a].value > best_val)
-					best_val = arms[a].value, best = a;
-
-			return best;                
+				if (arms[a].pulls == 0)
+					return a;
+			int   total = arms[0].pulls + arms[1].pulls + arms[2].pulls;
+			float logt = std::log(static_cast<float>(total));
+			int   best = 0;
+			float best_ucb = -FLT_MAX;
+			for (int a = 0; a < 3; ++a)
+			{
+				float ucb = arms[a].value + std::sqrt(2.f * logt / arms[a].pulls);
+				if (ucb > best_ucb)
+				{
+					best_ucb = ucb;
+					best = a;
+				}
+			}
+			return best;
 		}
 
 		void update(int c, int a, float r)
@@ -49,7 +56,10 @@ namespace
 	};
 
 	ContextualBandit g_bandit;
-	bool g_seeded = ([]() { std::srand(static_cast<unsigned>(std::time(nullptr))); return true; })();
+	bool g_seeded = ([]() {
+		std::srand(static_cast<unsigned>(std::time(nullptr)));
+		return true;
+		})();
 }
 
 namespace resolver
@@ -103,115 +113,140 @@ namespace resolver
 		jitter.is_jitter = jitter.jitter_ticks > jitter.static_ticks;
 	}
 
+	static bool static_jitter(c_cs_player* player)
+	{
+		const int idx = player->index();
+		auto& jit = resolver_info[idx].jitter;
 
-	void resolver::jitter_resolve(c_cs_player* player, anim_record_t* current)
+		if (jit.yaw_cache_offset < YAW_CACHE_SIZE)
+			return false;
+
+		float min_yaw = 180.f;
+		float max_yaw = -180.f;
+
+		for (int i = 0; i < YAW_CACHE_SIZE; ++i)
+		{
+			const float yaw = math::normalize_yaw(jit.yaw_cache[i]);
+
+			if (yaw < min_yaw) min_yaw = yaw;
+			if (yaw > max_yaw) max_yaw = yaw;
+		}
+
+		float span = math::normalize_yaw(max_yaw - min_yaw);
+		span = span < 0.f ? -span : span;          
+
+		return span <= JITTER_BEGIN_ANGLE;
+	}
+
+	inline int jitter_fix(c_cs_player* player, anim_record_t* current)
 	{
 		if (!player || !current)
-			return;
+			return 0;
 
 		const int idx = player->index();
 		auto& info = resolver_info[idx];
-		auto& jitter = info.jitter;
+		auto      anim = ANIMFIX->get_anims(idx);
 
-		jitter.yaw_cache[jitter.yaw_cache_offset % YAW_CACHE_SIZE] = current->eye_angles.y;
-		if (++jitter.yaw_cache_offset >= YAW_CACHE_SIZE)
-			jitter.yaw_cache_offset = 0;
+		if (!anim || anim->records.size() < 2)
+			return 0;
 
-		const int last = (jitter.yaw_cache_offset + YAW_CACHE_SIZE - 1) % YAW_CACHE_SIZE;
-		const int prev = (last + YAW_CACHE_SIZE - 1) % YAW_CACHE_SIZE;
-		const float delta_now = std::fabsf(math::angle_diff(jitter.yaw_cache[last], jitter.yaw_cache[prev]));
+		auto& prev = anim->records[1];
+		auto& jit = info.jitter;
 
-		jitter.delta_cache[jitter.cache_offset % CACHE_SIZE] = delta_now;
-		if (++jitter.cache_offset >= CACHE_SIZE)
-			jitter.cache_offset = 0;
+		if (current->eye_angles.x < 45.f)
+		{
+			++jit.static_ticks;
+			jit.jitter_ticks = 0;
+			return 0;
+		}
 
-		static float ema_delta[65]{};
-		static int last_big_delta_tick[65]{};
+		const float eye_delta = math::normalize_yaw(current->eye_angles.y - prev.eye_angles.y);
+		const float abs_delta = std::fabs(eye_delta);
 
-		const float alpha = 0.6f;
-		ema_delta[idx] = ema_delta[idx] == 0.f ? delta_now : alpha * delta_now + (1.f - alpha) * ema_delta[idx];
+		jit.delta_cache[jit.cache_offset % CACHE_SIZE] = abs_delta;
+		++jit.cache_offset;
 
-		if (delta_now >= 7.f)
-			last_big_delta_tick[idx] = 0;
+		if (abs_delta <= JITTER_BEGIN_ANGLE)
+		{
+			++jit.static_ticks;
+			jit.jitter_ticks = 0;
+		}
 		else
-			++last_big_delta_tick[idx];
-
-		float avg_delta = 0.f;
-		float var_delta = 0.f;
-		int filled = 0;
-
-		for (int i = 0; i < CACHE_SIZE; ++i)
 		{
-			const float d = jitter.delta_cache[i];
-			if (d != 0.f)
-			{
-				avg_delta += d;
-				++filled;
-			}
+			++jit.jitter_ticks;
+			jit.static_ticks = 0;
 		}
 
-		avg_delta = filled ? avg_delta / static_cast<float>(filled) : delta_now;
+		if (jit.static_ticks > YAW_CACHE_SIZE || !static_jitter(player))
+			return 0;
 
-		for (int i = 0; i < CACHE_SIZE; ++i)
-		{
-			const float d = jitter.delta_cache[i];
-			if (d != 0.f)
-				var_delta += (d - avg_delta) * (d - avg_delta);
-		}
+		const int inner_side = eye_delta > 0.f ? -1 : 1;
 
-		var_delta = filled ? var_delta / static_cast<float>(filled) : 0.f;
+		const int side = (RAGEBOT->missed_shots[idx] % 2 == 0) ? inner_side : -inner_side;
 
-		float delta_for_sim = ema_delta[idx];
-		if (var_delta > 25.f)
-			delta_for_sim = avg_delta;
-
-		if (last_big_delta_tick[idx] > 2)
-			delta_for_sim *= 0.5f;
-
-		if (delta_for_sim < 1.f)
-			delta_for_sim = 0.f;
-
-		auto simulate = [&](float start_yaw, float delta, int steps) -> float
-			{
-				float yaw = start_yaw;
-				int sign = 1;
-				float max_diff = 0.f;
-				for (int i = 0; i < steps; ++i)
-				{
-					yaw += delta * sign;
-					const float diff = std::fabsf(math::angle_diff(start_yaw, yaw));
-					if (diff > max_diff)
-						max_diff = diff;
-					sign = -sign;
-				}
-				return max_diff;
-			};
-
-		int step_count = var_delta > 20.f ? 5 : (last_big_delta_tick[idx] > 3 ? 2 : 3);
-		current->jitter_diff = simulate(current->eye_angles.y, delta_for_sim, step_count);
+		info.side = side;
+		return side;
 	}
 
-
-	int resolver::brute_force(c_cs_player* player, resolver_info_t& info, int misses)
+	inline int brute_force(c_cs_player* player, resolver_info_t& info, int misses)
 	{
-		const int ctx =
-			(info.jitter.is_jitter ? 1 : 0)
-			| (info.is_legit() ? 2 : 0);
+		bool crit = player->animlayers()[ANIMATION_LAYER_MOVEMENT_LAND_OR_CLIMB].weight > 0.f;
+		int ctx = (info.jitter.is_jitter ? 1 : 0)
+			| (info.is_legit() ? 2 : 0)
+			| (crit ? 4 : 0);
 
-		const int arm = g_bandit.select(ctx);
-		const int side = kSideMap[arm];
+		int arm = g_bandit.select(ctx);
+		int side = kSideMap[arm];
 
-		static int last_misses[65] = {};
-		const int  idx = player->index();
-		const int  delta = misses - last_misses[idx];
+		static int last_misses[65]{};
+		int idx = player->index();
+		int delta = misses - last_misses[idx];
 		last_misses[idx] = misses;
 
-		const float reward = (delta > 0) ? 0.f : 1.f; 
-
+		float reward = delta > 0 ? 0.f : 1.f;
 		g_bandit.update(ctx, arm, reward);
 
 		info.side = side;
 		return side;
+	}
+
+
+	static float static_resolve(c_cs_player* player)
+	{
+		auto state = player->animstate();
+		if (!state)
+			return 0.f;
+
+		float max_rot = state->get_max_rotation();
+		float delta = math::angle_diff(state->eye_yaw, state->abs_yaw);
+
+		if (delta > max_rot)
+			state->abs_yaw = math::normalize_yaw(state->eye_yaw - max_rot);
+
+		if (delta < -max_rot)
+			state->abs_yaw = math::normalize_yaw(state->eye_yaw + max_rot);
+
+		if (state->on_ground)
+		{
+			if (state->velocity_length_xy > 0.1f)
+			{
+				state->abs_yaw = math::approach_angle(state->eye_yaw, state->abs_yaw,
+					state->last_update_increment * (30.f + 20.f * state->walk_run_transition));
+
+				if (state->velocity_length_xy > 250.f)
+					state->abs_yaw = math::approach_angle(state->eye_yaw, state->abs_yaw,
+						state->last_update_increment * state->velocity_length_xy);
+			}
+			else
+				state->abs_yaw = math::approach_angle(player->lower_body_yaw(), state->abs_yaw,
+					state->last_update_increment * 100.f);
+		}
+		else if (state->velocity_length_xy > 250.f)
+			state->abs_yaw = math::approach_angle(state->eye_yaw, state->abs_yaw,
+				state->last_update_increment * state->velocity_length_xy);
+
+		state->abs_yaw = math::normalize_yaw(state->abs_yaw);
+		return state->abs_yaw;
 	}
 
 	inline void prepare_side(c_cs_player* player, anim_record_t* current, anim_record_t* last)
@@ -258,12 +293,11 @@ namespace resolver
 		if (jitter.is_jitter)
 		{
 			auto& misses = RAGEBOT->missed_shots[player->index()];
+
 			if (misses > 0)
 				info.side = 1337;
 			else
-			{
-				jitter_resolve(player, current);
-			}
+				info.side = jitter_fix(player, current);
 
 			info.resolved = true;
 			info.mode = XOR("jitter");
@@ -275,11 +309,11 @@ namespace resolver
 			{
 				info.side = brute_force(player, info, misses);
 				info.resolved = true;
-				info.mode = XOR("brute");        
+				info.mode = XOR("brute");
 			}
 			else
 			{
-				info.side = 0;
+				info.resolved_yaw = static_resolve(player);
 				info.mode = XOR("static");
 
 				info.resolved = true;
@@ -297,8 +331,18 @@ namespace resolver
 		if (!state)
 			return;
 
-		float desync_angle = choke < 2 ? state->get_max_rotation() : 120.f;
-		state->abs_yaw = math::normalize_yaw(player->eye_angles().y + desync_angle * info.side);
+		if (info.mode == XOR("static"))
+		{
+			state->abs_yaw = info.resolved_yaw;
+		}
+		else
+		{
+			if (info.side == 1337)
+				return;
+
+			float desync = choke < 2 ? state->get_max_rotation() : 120.f;
+			state->abs_yaw = math::normalize_yaw(player->eye_angles().y + desync * info.side);
+		}
 
 		if (RAGEBOT->missed_shots[player->index()] == 0)
 			resolver::pitch_resolve(player, current);
