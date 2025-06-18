@@ -1,5 +1,6 @@
 #pragma once
 #include "animations.hpp"
+#include "LSTM.hpp"
 
 constexpr int CACHE_SIZE = 2;
 constexpr int YAW_CACHE_SIZE = 8;
@@ -53,7 +54,9 @@ struct resolver_info_t
 		int jitter_ticks{};
 		int static_ticks{};
 
-		int jitter_tick{};
+                int jitter_tick{};
+
+                double last_input[2]{};
 
 		__forceinline void reset()
 		{
@@ -65,12 +68,13 @@ struct resolver_info_t
 			jitter_ticks = 0;
 			static_ticks = 0;
 
-			jitter_tick = 0;
+                        jitter_tick = 0;
 
-			std::memset(delta_cache, 0, sizeof(delta_cache));
-			std::memset(yaw_cache, 0, sizeof(yaw_cache));
-		}
-	} jitter;
+                        std::memset(delta_cache, 0, sizeof(delta_cache));
+                        std::memset(yaw_cache, 0, sizeof(yaw_cache));
+                        last_input[0] = last_input[1] = 0.0;
+                }
+        } jitter;
 
 	struct freestanding_t
 	{
@@ -119,6 +123,9 @@ namespace resolver
 
 	extern int jitter_fix(c_cs_player* player, anim_record_t* current);
 	extern void prepare_side(c_cs_player* player, anim_record_t* current, anim_record_t* last);
-	extern void apply(c_cs_player* player, anim_record_t* current, int choke);
-	int brute_force(c_cs_player* player, resolver_info_t& info, int misses);
+        extern void apply(c_cs_player* player, anim_record_t* current, int choke);
+        int brute_force(c_cs_player* player, resolver_info_t& info, int misses);
+        void save_lstm_weights();
+        void load_lstm_weights();
+        void train_lstm(const std::vector<double>& input, double target);
 }
