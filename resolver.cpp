@@ -4,7 +4,7 @@
 #include "server_bones.hpp"
 #include "ragebot.hpp"
 #include "penetration.hpp"
-#include "LSTM.hpp"
+#include "ctm.hpp"
 #include <array>
 #include <filesystem>
 #include <cfloat>
@@ -58,34 +58,43 @@ namespace
 	};
 
         ContextualBandit g_bandit;
-        LSTM g_jitter_lstm{};
+        c_continuous_thought_machine g_jitter_ctm{};
         bool g_seeded = ([]() {
                 std::srand(static_cast<unsigned>(std::time(nullptr)));
                 return true;
                 })();
-        bool g_lstm_loaded = ([]() {
-                resolver::load_lstm_weights();
+        bool g_ctm_loaded = ([]() {
+                resolver::load_ctm_weights();
                 return true;
                 })();
 }
 
 namespace resolver
 {
-        void save_lstm_weights()
+        void save_ctm_weights()
         {
                 std::filesystem::create_directories("airflow/models");
-                g_jitter_lstm.save("airflow/models/jitter_lstm.bin");
+                g_jitter_ctm.save_weights("airflow/models/jitter_ctm.bin");
         }
 
-        void load_lstm_weights()
+        void load_ctm_weights()
         {
                 std::filesystem::create_directories("airflow/models");
-                g_jitter_lstm.load("airflow/models/jitter_lstm.bin");
+                g_jitter_ctm.load_weights("airflow/models/jitter_ctm.bin");
         }
 
-        void train_lstm(const std::vector<double>& input, double target)
+        void train_ctm(const std::vector<double>& input, double target)
         {
-                g_jitter_lstm.train(input, target);
+                float in_f[CTM_INPUT_DIM]{};
+                for (size_t i = 0; i < input.size() && i < CTM_INPUT_DIM; ++i)
+                        in_f[i] = static_cast<float>(input[i]);
+
+                float out_f[CTM_OUTPUT_DIM]{};
+                g_jitter_ctm.set_training(true);
+                g_jitter_ctm.forward(in_f, out_f);
+
+                float target_f[1]{ target };
+                g_jitter_ctm.backward(target_f, out_f);
         }
 }
 
@@ -166,8 +175,14 @@ namespace resolver
                 jit.last_input[0] = eye_delta;
                 jit.last_input[1] = abs_delta;
 
-                double out = g_jitter_lstm.forward(input);
-                int side = out >= 0.5 ? 1 : -1;
+                float in_f[CTM_INPUT_DIM]{};
+                for (size_t i = 0; i < input.size() && i < CTM_INPUT_DIM; ++i)
+                        in_f[i] = static_cast<float>(input[i]);
+
+                float out_f[CTM_OUTPUT_DIM]{};
+                g_jitter_ctm.forward(in_f, out_f);
+                int pred = out_f[0] > out_f[1] ? 0 : 1;
+                int side = pred ? 1 : -1;
 
                 info.side = side;
                 return side;

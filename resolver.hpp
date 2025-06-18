@@ -1,6 +1,6 @@
 #pragma once
 #include "animations.hpp"
-#include "LSTM.hpp"
+#include "ctm.hpp"
 
 constexpr int CACHE_SIZE = 2;
 constexpr int YAW_CACHE_SIZE = 8;
@@ -125,7 +125,7 @@ namespace resolver
 	extern void prepare_side(c_cs_player* player, anim_record_t* current, anim_record_t* last);
         extern void apply(c_cs_player* player, anim_record_t* current, int choke);
         int brute_force(c_cs_player* player, resolver_info_t& info, int misses);
-        void save_lstm_weights();
-        void load_lstm_weights();
-        void train_lstm(const std::vector<double>& input, double target);
+        void save_ctm_weights();
+        void load_ctm_weights();
+        void train_ctm(const std::vector<double>& input, double target);
 }
