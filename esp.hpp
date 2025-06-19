@@ -1,5 +1,6 @@
 #pragma once
 #include "esp_object_render.hpp"
+#include <array>
 
 struct weapon_esp_t
 {
@@ -78,6 +79,9 @@ struct esp_player_t
     std::string weapon_name{};
     std::string weapon_icon{};
 
+    std::array<std::string, 4> grenade_icons{};
+    std::array<bool, 4> grenade_active{};
+
     esp_dormant_t dormant{};
     esp_object_t objects[MAX_ESP_OBJECTS]{};
 
@@ -108,6 +112,30 @@ struct esp_player_t
                 planting = weapon->item_definition_index() == WEAPON_C4 && weapon->started_arming();
             }
         }
+
+        grenade_icons.fill("");
+        grenade_active.fill(false);
+
+        short active_idx = weapon ? weapon->item_definition_index() : -1;
+        auto weapons = player->get_weapons();
+        for (auto w : weapons)
+        {
+            if (!w || !w->is_grenade())
+                continue;
+
+            short idx = w->item_definition_index();
+            const char* icon = (const char*)w->get_weapon_icon();
+            int slot = -1;
+            if (idx == WEAPON_HEGRENADE) slot = 0;
+            else if (idx == WEAPON_SMOKEGRENADE) slot = 1;
+            else if (idx == WEAPON_FLASHBANG) slot = 2;
+            else if (idx == WEAPON_MOLOTOV || idx == WEAPON_FIREBOMB || idx == WEAPON_INCGRENADE) slot = 3;
+            if (slot == -1)
+                continue;
+
+            grenade_icons[slot] = icon;
+            grenade_active[slot] = idx == active_idx;
+        }
     }
 
     INLINE void reset()
@@ -131,6 +159,9 @@ struct esp_player_t
             name.clear();
             weapon_name.clear();
             weapon_icon.clear();
+
+            grenade_icons.fill("");
+            grenade_active.fill(false);
 
             std::memset(poses, 0, sizeof(poses));
 

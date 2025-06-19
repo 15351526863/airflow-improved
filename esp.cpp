@@ -617,8 +617,21 @@ void c_esp::draw_player_esp()
 			esp.objects[i].reset();
 
 		// store esp objects 
-		{
-			int iter = 0;
+                {
+                        int iter = 0;
+
+                        if (entity_visuals.elements & 2048)
+                        {
+                                for (int g = 0; g < 4; ++g)
+                                {
+                                        if (esp.grenade_icons[g].empty())
+                                                continue;
+
+                                        auto clr = esp.grenade_active[g] ? c_color{255,255,255,255} : c_color{120,120,120,255};
+                                        EMPLACE_OBJECT(true, FONT_DROPSHADOW | FONT_LIGHT_BACK, FONT_ICON, ESP_POS_UP, 0.f, 0.f,
+                                                esp.alpha, clr, {0,0,0,255}, esp.grenade_icons[g]);
+                                }
+                        }
 			
 			if (entity_visuals.elements & 2)
 				EMPLACE_OBJECT(true, FONT_OUTLINE | FONT_LIGHT_BACK, FONT_PIXEL, ESP_POS_UP, 0.f, 0.f, esp.alpha, name_color, { 0, 0, 0, 255 }, player->get_name());
