@@ -8,10 +8,10 @@
 
 #define INLINE __forceinline
 
-constexpr int CTM_INPUT_DIM = 64;      // Input features dimension
+constexpr int CTM_INPUT_DIM = 2;       // Input features dimension
 constexpr int CTM_HIDDEN_DIM = 128;    // Hidden layer dimension
 constexpr int CTM_THOUGHT_DIM = 32;    // Thought/synchronization dimension
-constexpr int CTM_OUTPUT_DIM = 8;      // Output dimension
+constexpr int CTM_OUTPUT_DIM = 2;      // Output dimension
 constexpr int CTM_DEFAULT_HISTORY_SIZE = 32;   // Default temporal history size (M in paper)
 constexpr int CTM_MAX_THINK_STEPS = 8; // Maximum thinking steps
 constexpr float CTM_LEARNING_RATE = 0.001f;

@@ -1661,8 +1661,8 @@ void c_ragebot::player_hurt(c_game_event* event)
         {
                 auto& shot = shots.front();
                 std::vector<double> input{ shot.resolver.jitter.last_input[0], shot.resolver.jitter.last_input[1] };
-                resolver::train_lstm(input, 1.0);
-                resolver::save_lstm_weights();
+                resolver::train_ctm(input, 1.0);
+                resolver::save_ctm_weights();
                 shots.erase(shots.begin());
         }
 }
@@ -1749,8 +1749,8 @@ void c_ragebot::proceed_misses()
                                                         missed_shots[shot.index]++;
                                                         EVENT_LOGS->push_message(XOR("Missed shot due to resolver"));
                                                         std::vector<double> input{ shot.resolver.jitter.last_input[0], shot.resolver.jitter.last_input[1] };
-                                                        resolver::train_lstm(input, 0.0);
-                                                        resolver::save_lstm_weights();
+                                                        resolver::train_ctm(input, 0.0);
+                                                        resolver::save_ctm_weights();
                                                 }
 						else
 							EVENT_LOGS->push_message(XOR("Missed shot due to ?"));
