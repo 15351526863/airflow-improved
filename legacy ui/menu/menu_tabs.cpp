@@ -1010,8 +1010,9 @@ void c_menu::draw_ui_items()
 #if _DEBUG || ALPHA || BETA
                                                           XOR("Resolver mode"),
 #endif
-							//  XOR("Skeleton"),
-							});
+                                                          XOR("Grenades"),
+//  XOR("Skeleton"),
+                                                        });
 
 						if (enemy_esp.elements & 1)
 							color_picker(CXOR("Box color##esp_enemy"), enemy_esp.colors.box);
